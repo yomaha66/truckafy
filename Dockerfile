@@ -4,10 +4,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY main.py mix.py eleven.py script.py video.py logo.py ./
+COPY main.py mix.py eleven.py script.py video.py logo.py edit.py ./
 COPY assets/ ./assets/
 COPY fonts/ ./fonts/
 COPY static/ ./static/
-RUN python -c "import mix, script, video, logo; print('ok')"
+RUN python -c "import mix, script, video, logo, edit; print('ok')"
 ENV PORT=8080 PYTHONUNBUFFERED=1
-CMD exec gunicorn --bind :$PORT --workers 2 --threads 2 --timeout 300 main:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 2 --timeout 300 main:app
