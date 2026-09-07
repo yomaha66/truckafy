@@ -96,3 +96,31 @@ def remix_previews(voice_id, change, sample_text, strength=0.6):
             "prompt_strength": strength}
     data = json.loads(_post("/v1/text-to-voice/" + voice_id + "/remix", body, accept="application/json"))
     return data["previews"]
+
+
+def tts_with_timestamps(script_text, voice_id=None):
+    """Returns (mp3_bytes, alignment) — alignment has characters + character_start/end_times_seconds."""
+    import base64
+    vid = voice_id or VOICE_ID
+    body = {"text": script_text, "model_id": MODEL_TTS,
+            "voice_settings": {"stability": 0.0, "similarity_boost": 0.6, "use_speaker_boost": True}}
+    data = json.loads(_post("/v1/text-to-speech/" + vid + "/with-timestamps?output_format=mp3_44100_128", body,
+                            accept="application/json"))
+    return base64.b64decode(data["audio_base64"]), data.get("alignment") or data.get("normalized_alignment")
+
+
+def intro_end_seconds(script_text, intro_line, alignment):
+    """Time at which the intro line finishes, from the character alignment (None if it can't be found)."""
+    if not alignment or not intro_line:
+        return None
+    chars = alignment.get("characters") or []
+    ends = alignment.get("character_end_times_seconds") or []
+    joined = "".join(chars)
+    i = joined.find(intro_line)
+    if i < 0:
+        i = joined.find(intro_line[-12:])  # tolerate normalization changes at the front
+        if i < 0:
+            return None
+        i -= len(intro_line) - 12
+    j = i + len(intro_line) - 1
+    return float(ends[j]) if 0 <= j < len(ends) else None

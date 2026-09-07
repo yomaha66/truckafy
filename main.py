@@ -41,16 +41,23 @@ def health():
 
 
 def _render(user_text, intro, seed):
-    perf = script.build(user_text, intro=intro, seed=seed)
+    perf, intro_line = script.build(user_text, intro=intro, seed=seed, with_intro=True)
     t0 = time.time()
-    take = eleven.tts_mp3_raw(perf)
+    intro_end = None
+    try:
+        take, alignment = eleven.tts_with_timestamps(perf)
+        intro_end = eleven.intro_end_seconds(perf, intro_line, alignment)
+    except Exception as e:  # noqa: BLE001 — timestamps are a nicety; the plain call is the fallback
+        log.warning("with-timestamps failed (%s); plain TTS", str(e)[:120])
+        take = eleven.tts_mp3_raw(perf)
     t_tts = time.time() - t0
     with tempfile.TemporaryDirectory() as tmp:
         take_path = os.path.join(tmp, "take.mp3")
         out_path = os.path.join(tmp, "truckafy.mp3")
         with open(take_path, "wb") as fh:
             fh.write(take)
-        info = mix.render(take_path, out_path, seed=seed if seed is not None else random.randrange(1 << 30), **RECIPE)
+        info = mix.render(take_path, out_path, seed=seed if seed is not None else random.randrange(1 << 30),
+                          intro_end=intro_end, **RECIPE)
         with open(out_path, "rb") as fh:
             mp3 = fh.read()
     log.info("rendered %d bytes | tts %.1fs | total %.1fs | %r", len(mp3), t_tts, time.time() - t0, perf[:120])

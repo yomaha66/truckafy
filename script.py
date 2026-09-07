@@ -14,16 +14,16 @@ import random
 import re
 
 INTROS = [
-    "Sunday! Sunday! SUUUNDAY!",
-    "Saturday night! Saturday night! SATURDAAAY NIGHT!",
-    "This Sunday! At the DOOOME!",
-    "One night only! ONE NIGHT OOONLY!",
-    "Be there! Be there! BE THEEERE!",
+    "Sunday, Sunday, SUUUNDAY!",
+    "Saturday night, Saturday night, SATURDAAAY NIGHT!",
+    "This Sunday, at the DOOOME!",
+    "One night only, ONE NIGHT OOONLY!",
+    "Be there, be there, BE THEEERE!",
     "We'll sell you the whole seat, but you'll only need the EEEDGE!",
     "Kids seats are still five BUUUCKS!",
-    "Side by side racing! Car crushing! And the fire breathing JET CAAAR!",
-    "Monster trucks! Monster trucks! MONSTER TRUUUCKS!",
-    "Live! Live! LIIIVE!",
+    "Side by side racing, car crushing, and the fire breathing JET CAAAR!",
+    "Monster trucks, monster trucks, MONSTER TRUUUCKS!",
+    "Live, live, LIIIVE!",
 ]
 
 VOWELS = "aeiouAEIOU"
@@ -60,7 +60,7 @@ def triple(word):
     """Sunday! Sunday! SUUUNDAY! — the third repeat is the one the riser and slapback hit."""
     w = word.strip("'-")
     cap = w[0].upper() + w[1:] if w else w
-    return f"{cap}! {cap}! {stretch(cap.upper())}!"
+    return f"{cap}, {cap}, {stretch(cap.upper())}!"
 
 
 def first_word(text):
@@ -68,8 +68,9 @@ def first_word(text):
     return m.group(0) if m else None
 
 
-def build(text, intro="auto", seed=None):
-    """intro: 'auto' (random mix of the two), 'first' (user's first word x3), 'arena' (pool), 'none'."""
+def build(text, intro="auto", seed=None, with_intro=False):
+    """intro: 'auto' (random mix of the two), 'first' (user's first word x3), 'arena' (pool), 'none'.
+    with_intro=True also returns the intro line so the caller can locate its end in the TTS timestamps."""
     rng = random.Random(seed)
     text = re.sub(r"\s+", " ", text.strip())
     fw = first_word(text)
@@ -88,7 +89,8 @@ def build(text, intro="auto", seed=None):
         tag = "[excited][shouts]" if i % 2 == 0 else "[shouts]"
         body.append(f"{tag} {accent_last_word(s)}")
     parts = ([f"[shouts] {intro_line}"] if intro_line else []) + body
-    return " ... ".join(parts)
+    perf = " ... ".join(parts)
+    return (perf, intro_line) if with_intro else perf
 
 
 if __name__ == "__main__":

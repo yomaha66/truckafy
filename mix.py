@@ -109,6 +109,15 @@ def valleys(x, start, end, smooth_ms=25, min_prom_db=5.0, min_sep=0.16):
     return out
 
 
+def merge_intro(segs, intro_end):
+    """Fold every leading segment that starts before intro_end into one intro segment (timestamps from the TTS)."""
+    if not intro_end or len(segs) < 2:
+        return segs
+    idx = [i for i, (a, b) in enumerate(segs) if a < intro_end + 0.05]
+    k = max(idx) if idx else 0
+    return [(segs[0][0], segs[k][1])] + segs[k + 1:] if k > 0 else segs
+
+
 def last_word_onset(x, seg):
     """Onset of the final word in a segment: last envelope valley that leaves >= 0.25 s of word."""
     s, e = seg
@@ -295,9 +304,9 @@ def punctuate(x, segs, extra=0.3):
     return y, segs2
 
 
-def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semis=4.5, slap_word=False):
+def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semis=4.5, slap_word=False, intro_end=None):
     """Pitch-rise (way up), dramatic slapback and/or stutter on the last word of the intro phrase;
-    tape-stop the very last word of the clip."""
+    tape-stop the very last word of the clip. Returns (audio, segments, intro_end)."""
     y = x
     if (stutter_on or rise or slap_word) and segs:
         s, e = segs[0]
@@ -310,7 +319,9 @@ def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semi
             if stutter_on:
                 w = stutter(w, n=3)
             y = np.concatenate([y[:a], w, y[b:]])
-            segs = segments(y)  # measured BEFORE the echo tail bridges the pause, so hits still land on it
+            if intro_end:
+                intro_end += (len(w) - (b - a)) / SR
+            segs = merge_intro(segments(y), intro_end)  # measured BEFORE the echo tail bridges the pause
             if slap_word:
                 y = word_slap(y, a, a + len(w))
     if tapestop and segs:
@@ -319,7 +330,7 @@ def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semi
         a = int(on * SR); b = int(e * SR)
         y = np.concatenate([y[:a], tape_stop(y[a:b]), y[b:]])
         segs = segs[:-1] + [(s, min(e, len(y) / SR))]
-    return y, segs
+    return y, segs, intro_end
 
 
 # ----------------------------------------------------------------------------- voice fx
@@ -466,20 +477,22 @@ def hit_sound(name):
 def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, tapestop=False,
            pitch=-2.0, sub_db=-10.0, engine_db=-17.0, riff_db=-16.0, crowd_db=-26.0, lufs=-9.0,
            wet_db=-13.0, slap_db=-9.0, seed=3, vari=False, rise=False, riff="riff_speedy_a.wav", siren="siren_wail.wav",
-           glitch_mid=False, rise_semis=4.5, slap_word=False, punct=False, report=None):
+           glitch_mid=False, rise_semis=4.5, slap_word=False, punct=False, intro_end=None, report=None):
     raw = load(take_path)
     raw *= db(-3.0 - peak_db(raw))
-    segs = segments(raw)
+    segs = merge_intro(segments(raw), intro_end)  # TTS timestamps (when known) say where the intro line ends
     v = raw
     if cadence:
         v, segs = cadence_middle(v, segs, seed=seed, stutter_on=stutter_on, slash_on=slash, vari=vari, rise=rise)
+        segs = merge_intro(segs, intro_end)
     if glitch_mid:
         v, segs = glitch_middle(v, segs, seed=seed)
+        segs = merge_intro(segs, intro_end)
     if punct:
         v, segs = punctuate(v, segs)
     if stutter_on or tapestop or rise or slap_word:
-        v, segs = glitch_finale(v, segs, tapestop=tapestop, stutter_on=stutter_on, rise=rise,
-                                rise_semis=rise_semis, slap_word=slap_word)
+        v, segs, intro_end = glitch_finale(v, segs, tapestop=tapestop, stutter_on=stutter_on, rise=rise,
+                                           rise_semis=rise_semis, slap_word=slap_word, intro_end=intro_end)
     v = voice_fx(v, pitch_st=pitch, sub_db=sub_db)
     v = slapback(v, level_db=slap_db)
     v = reverb(v, wet_db=wet_db)
@@ -527,7 +540,7 @@ def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, ta
             "segments": [(round(a, 2), round(b, 2)) for a, b in segs_p],
             "hits": [(h[0], round(h[1], 2), h[2], str(h[3])) for h in hits],
             "cadence": cadence, "stutter": stutter_on, "slash": slash, "tapestop": tapestop, "vari": vari, "rise": rise,
-            "rise_semis": rise_semis, "glitch_mid": glitch_mid, "slap_word": slap_word, "punct": punct, "riff": riff, "riff_db": riff_db, "pitch": pitch}
+            "rise_semis": rise_semis, "glitch_mid": glitch_mid, "slap_word": slap_word, "punct": punct, "intro_end": intro_end, "riff": riff, "riff_db": riff_db, "pitch": pitch}
     if report is not None:
         report.append(info)
     return info
