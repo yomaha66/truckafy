@@ -27,7 +27,7 @@ INTROS = [
 ]
 
 VOWELS = "aeiouAEIOU"
-_WORD = re.compile(r"[A-Za-z][A-Za-z'\-]*")
+_WORD = re.compile(r"[^\W\d_][\w'\-]*")
 
 
 def stretch(word, n=3):
@@ -64,7 +64,7 @@ def triple(word):
 
 
 def first_word(text):
-    m = _WORD.search(text)
+    m = _WORD.match(text.lstrip())
     return m.group(0) if m else None
 
 
