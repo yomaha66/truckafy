@@ -207,10 +207,13 @@ def take_score(alignment, x, intro_line=""):
 
 
 # ----------------------------------------------------------------------------- the plan
-def plan_effects(ws, seed=3, human=True):
+def plan_effects(ws, seed=3, human=True, plan=None):
     """Decide which words get which effect. Returns a dict keyed by word index.
-    human=True budgets ONE glitch in the body (a doubled phrase, a stutter or a slash cut — never stacked) on
-    top of the intro riser/slapback and the tape-stop on the last word, so the announcer stays a person."""
+    plan="n" is the signed-off N set placed on words: intro riser+slapback, the opening phrase of the message
+    doubled when it is short enough, slash cut + stutter on the accent word of the line before the last one,
+    tape-stop on the last word. plan="human" budgets ONE glitch in the body instead."""
+    if plan == "n":
+        return plan_effects_n(ws, seed)
     if human:
         return plan_effects_human(ws, seed)
     rng = np.random.default_rng(seed)
@@ -259,6 +262,36 @@ def plan_effects(ws, seed=3, human=True):
         d["slash"] = True
     if len(body) == 1 and len(final) >= 3 and rng.random() < 0.6:
         d["stutter"] = True
+    return fx
+
+
+def plan_effects_n(ws, seed=3):
+    rng = np.random.default_rng(seed)
+    sents = sentences(ws)
+    body = [s for s in sents if not s[0].intro]
+    fx = {}
+    idx = {id(w): i for i, w in enumerate(ws)}
+    intro_word = ws[0].clean.lower() if ws and ws[0].intro else None
+    if ws and ws[0].intro:
+        fx[idx[id(sents[0][-1])]] = {"riser": True, "slap": True}
+    if not body:
+        return fx
+    first = body[0]
+    if len(first) >= 4 and len(body) >= 2:
+        start = 1 if (intro_word and first[0].clean.lower() == intro_word) else 0
+        phrase = []
+        for w in first[start:-1]:
+            phrase.append(w)
+            if sum(v.t1 - v.t0 for v in phrase) >= 0.55 or len(phrase) == 3:
+                break
+        dur = sum(v.t1 - v.t0 for v in phrase)
+        if 0.3 <= dur <= 1.4 and first[-1].t0 - phrase[-1].t1 >= 0.9:
+            fx[idx[id(phrase[0])]] = {"double_from": idx[id(phrase[0])], "double_to": idx[id(phrase[-1])]}
+    if len(body) >= 2:
+        w = body[-2][-1]
+        fx.setdefault(idx[id(w)], {}).update({"stutter": True, "slash": True})
+    w = body[-1][-1]
+    fx.setdefault(idx[id(w)], {})["tapestop"] = True
     return fx
 
 
@@ -320,10 +353,11 @@ def _slice(x, a, b):
     return x[max(0, int(a * SR)):max(0, int(b * SR))]
 
 
-def gap_piece(x, e, b, nb, want, max_keep=0.26, drop_db=35.0):
+def gap_piece(x, e, b, nb, want, max_keep=0.26, drop_db=35.0, exact=True):
     """Audio for the gap [b, nb] between two words. The longest silent run inside it is shortened to
     `want` (or padded up to it, when a sentence boundary needs room for a hit); speech tails on either
-    side are kept as they are. want=None means 'keep at most max_keep of silence'."""
+    side are kept as they are. want=None means 'keep at most max_keep of silence' (max_keep=None: keep
+    it all). exact=False makes `want` a minimum only: the take's own pause survives when it is longer."""
     if nb <= b:
         return np.zeros(int(SR * (want or 0.0)))
     fa, fb = int(b / (0.01)), int(nb / 0.01)
@@ -349,17 +383,24 @@ def gap_piece(x, e, b, nb, want, max_keep=0.26, drop_db=35.0):
         pad = max(0.0, (want or 0.0) - (nb - b))
         return np.concatenate([seg, np.zeros(int(SR * pad))])
     t0, t1 = s0 * 0.01, s1 * 0.01
-    keep = min(t1 - t0, want if want is not None else max_keep)
+    if want is not None:
+        keep = min(t1 - t0, want) if exact else min(t1 - t0, max(want, max_keep or 9.0))
+    else:
+        keep = min(t1 - t0, max_keep) if max_keep is not None else (t1 - t0)
     pad = max(0.0, (want - (t1 - t0))) if want is not None else 0.0
     head = mix.fade(_slice(x, b, t0 + keep), 0, 10) if (t0 + keep) > b else np.zeros(0)
     tailp = mix.fade(_slice(x, t1, nb), 10, 0) if nb > t1 else np.zeros(0)
     return np.concatenate([head, np.zeros(int(SR * pad)), tailp])
 
 
-def assemble(x, ws, fx, tempo=1.0, cap_accent=1.05, cap_intro=1.6, cap_final=1.25, cap_word=0.8, seed=3):
+def assemble(x, ws, fx, tempo=1.0, cap_accent=1.05, cap_intro=1.6, cap_final=1.25, cap_word=0.8, seed=3, trim=True):
     """Apply the global tempo, then rebuild the take word by word with the planned effects and gaps.
-    Sets each word's output span (o0, o1). Returns (audio, intro_accent_span or None)."""
+    Sets each word's output span (o0, o1). Returns (audio, intro_accent_span or None).
+    trim=False keeps the announcer's own timing: no pause is shortened (structural pauses are only padded up
+    to what a hit needs, and capped at 1.1 s) and no word is compressed unless it runs past 2.2 s."""
     rng = np.random.default_rng(seed + 1)
+    if not trim:
+        cap_accent = cap_intro = cap_final = cap_word = 2.2
     if abs(tempo - 1.0) > 0.02:
         x = mix.ff(x, f"rubberband=tempo={tempo:.3f}:pitch=1.0:pitchq=quality:transients=crisp")
         for w in ws:
@@ -408,7 +449,8 @@ def assemble(x, ws, fx, tempo=1.0, cap_accent=1.05, cap_intro=1.6, cap_final=1.2
             pieces.append(out); pos += len(out) / SR
             i = j + 1
             if i < n:
-                g = gap_piece(x, e, ws[j].t1 + tail, ws[i].t0 - lead, gap_after(ws, j))
+                g = gap_piece(x, e, ws[j].t1 + tail, ws[i].t0 - lead, gap_after(ws, j),
+                              max_keep=(0.26 if trim else 1.1), exact=trim)
                 pieces.append(g); pos += len(g) / SR
             continue
         if f.get("slash") and pieces:
@@ -428,7 +470,7 @@ def assemble(x, ws, fx, tempo=1.0, cap_accent=1.05, cap_intro=1.6, cap_final=1.2
         pieces.append(chunk); pos = w.o1
         # gap to the next word: only SILENCE is trimmed or padded, never the tail of a word
         if i < n - 1:
-            g = gap_piece(x, e, b, ws[i + 1].t0 - lead, gap_after(ws, i))
+            g = gap_piece(x, e, b, ws[i + 1].t0 - lead, gap_after(ws, i), max_keep=(0.26 if trim else 1.1), exact=trim)
             pieces.append(g); pos += len(g) / SR
         i += 1
     if tail_end and ws:

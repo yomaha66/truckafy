@@ -536,8 +536,10 @@ def _master(v, voice_end_rel, hits, out_path, engine_db=-17.0, riff_db=-16.0, cr
 
 def render_words(take_path, out_path, alignment, intro_line="", seed=3, engine_db=-17.0, riff_db=-13.0, crowd_db=-26.0,
                  lufs=-9.0, wet_db=-13.0, slap_db=-9.0, riff="riff_speedy_a.wav", siren="siren_wail.wav", licks=True,
-                 normalise=True, riff_duck=4.5, human=True):
-    """The word-accurate pipeline (see edit.py). Falls back to render() when there is no alignment."""
+                 normalise=True, riff_duck=4.5, human=True, plan=None, trim=True, pitch=None):
+    """The word-accurate pipeline (see edit.py). Falls back to render() when there is no alignment.
+    plan="n" + trim=False + human=False + pitch=-2 reproduces the signed-off N recipe with the effects placed
+    on words from the alignment and the announcer's own timing left alone."""
     import edit
     raw = load(take_path)
     raw *= db(-3.0 - peak_db(raw))
@@ -546,8 +548,10 @@ def render_words(take_path, out_path, alignment, intro_line="", seed=3, engine_d
         return render(take_path, out_path, seed=seed, rise=True, rise_semis=10.0, slap_word=True, glitch_mid=True,
                       tapestop=True, punct=True, riff=riff, riff_db=riff_db, engine_db=engine_db, crowd_db=crowd_db, lufs=lufs)
     norm = edit.normalise_plan(ws, raw, human=human) if normalise else dict(rate=0, tempo=1.0, f0=0, pitch=(0.0 if human else -2.0), ok=True)
-    fx = edit.plan_effects(ws, seed=seed, human=human)
-    v, intro_span = edit.assemble(raw, ws, fx, tempo=norm["tempo"], seed=seed)
+    if pitch is not None:
+        norm["pitch"] = pitch
+    fx = edit.plan_effects(ws, seed=seed, human=human, plan=plan)
+    v, intro_span = edit.assemble(raw, ws, fx, tempo=norm["tempo"], seed=seed, trim=trim)
     if intro_span:
         v = word_slap(v, int(intro_span[0] * SR), int(intro_span[1] * SR))
     pitch = norm["pitch"]
@@ -562,6 +566,12 @@ def render_words(take_path, out_path, alignment, intro_line="", seed=3, engine_d
             "words": [(w.text, round(w.o0, 2), round(w.o1, 2)) for w in ws],
             "hits": [(h[0], round(h[1], 2), h[2], str(h[3])) for h in hits]}
     return info
+
+
+def render_n(take_path, out_path, alignment, intro_line="", seed=3, licks=False, **kw):
+    """The signed-off N sound, word-accurate: N's voice chain and levels, N's effect set, the take's own timing."""
+    return render_words(take_path, out_path, alignment, intro_line, seed=seed, licks=licks, normalise=False, human=False,
+                        plan="n", trim=False, pitch=-2.0, riff_db=kw.pop("riff_db", -16.0), riff_duck=kw.pop("riff_duck", 6.0), **kw)
 
 
 # ----------------------------------------------------------------------------- main
