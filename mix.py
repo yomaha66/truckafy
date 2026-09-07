@@ -281,6 +281,20 @@ def glitch_middle(x, segs, seed=3):
     return y, segments(y)
 
 
+def punctuate(x, segs, extra=0.3):
+    """Widen the biggest middle pause so the punctuation rev has room to land before the next line."""
+    if len(segs) < 3:
+        return x, segs
+    gaps = [(s1 - e0, gi) for gi, ((s0, e0), (s1, e1)) in enumerate(zip(segs[:-1], segs[1:])) if gi > 0]
+    if not gaps:
+        return x, segs
+    gi = max(gaps)[1]
+    cut = int((segs[gi][1] + 0.05) * SR)
+    y = np.concatenate([x[:cut], np.zeros(int(SR * extra)), x[cut:]])
+    segs2 = segs[:gi + 1] + [(a + extra, b + extra) for a, b in segs[gi + 1:]]
+    return y, segs2
+
+
 def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semis=4.5, slap_word=False):
     """Pitch-rise (way up), dramatic slapback and/or stutter on the last word of the intro phrase;
     tape-stop the very last word of the clip."""
@@ -414,7 +428,7 @@ def rev_variants():
 def schedule_hits(segs, total_s, seed=11, siren="siren_wail.wav"):
     """(sound, time, gain_db, pan) from the pause structure.
     No crash sounds. Pyro only where a sentence ends (intro phrase + finale). Regular revs rotate through
-    variants on about half the small gaps; the biggest middle gap and the finale get an EXTREME rev.
+    variants on about half the small gaps; ONE extreme rev punctuates the end of the middle line.
     One siren sweeps across the intro phrase."""
     rng = np.random.default_rng(seed)
     order = ["rev_high", "rev_double", "rev_low", "rev_blip", "rev_hold", "rev_full"]
@@ -434,12 +448,12 @@ def schedule_hits(segs, total_s, seed=11, siren="siren_wail.wav"):
         at = max(0.0, e0 - 0.04); pan = side[k % 2]; k += 1
         if gi == 0:                                                        # end of the intro phrase: the blast
             hits += [("pyro_explosion.wav", at, -4.0, 0.0), (next(revs), at + 0.25, -7.0, pan)]
-        elif gi == big and gap >= 0.25:                                    # the biggest middle pause: EXTREME rev
-            hits.append((extremes[0], at - 0.05, -2.5, pan * 0.6))
+        elif gi == big and gap >= 0.25:                                    # end of the middle line: THE extreme rev
+            hits.append(("rev_extreme_a.wav", e0 + 0.06, 0.0, 0.0))        # full level, dead center, right after the word
         elif gap >= 0.14 and rng.random() < 0.5:
             hits.append((next(revs), at, -8.0 + float(rng.uniform(-2, 2)), pan))
     end = segs[-1][1] if segs else total_s
-    hits += [("pyro_explosion.wav", max(0.0, end - 0.05), -3.0, 0.0), (extremes[1], end + 0.02, -2.0, 0.25)]
+    hits += [("pyro_explosion.wav", max(0.0, end - 0.05), -3.0, 0.0), ("rev_low", end + 0.02, -3.0, 0.25)]
     return hits
 
 
@@ -451,7 +465,7 @@ def hit_sound(name):
 def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, tapestop=False,
            pitch=-2.0, sub_db=-10.0, engine_db=-17.0, riff_db=-16.0, crowd_db=-26.0, lufs=-9.0,
            wet_db=-13.0, slap_db=-9.0, seed=3, vari=False, rise=False, riff="riff_speedy_a.wav", siren="siren_wail.wav",
-           glitch_mid=False, rise_semis=4.5, slap_word=False, report=None):
+           glitch_mid=False, rise_semis=4.5, slap_word=False, punct=False, report=None):
     raw = load(take_path)
     raw *= db(-3.0 - peak_db(raw))
     segs = segments(raw)
@@ -460,6 +474,8 @@ def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, ta
         v, segs = cadence_middle(v, segs, seed=seed, stutter_on=stutter_on, slash_on=slash, vari=vari, rise=rise)
     if glitch_mid:
         v, segs = glitch_middle(v, segs, seed=seed)
+    if punct:
+        v, segs = punctuate(v, segs)
     if stutter_on or tapestop or rise or slap_word:
         v, segs = glitch_finale(v, segs, tapestop=tapestop, stutter_on=stutter_on, rise=rise,
                                 rise_semis=rise_semis, slap_word=slap_word)
@@ -474,15 +490,23 @@ def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, ta
     p0 = int(SR * pre); n = min(len(v), total - p0); mix[:, p0:p0 + n] += v[:n]
     env = env_follow(mix[0]); env = np.clip(env / (np.percentile(env, 97) + 1e-9), 0, 1)
     fade_start = voice_end + 0.5
+    beds = np.zeros((2, total))
     for name, level, depth, pan in (("engine_bed.wav", engine_db, 5.0, 0.0), (riff, riff_db, 6.0, -0.35),
                                     ("crowd_bed.wav", crowd_db, 4.0, 0.35)):
         b = bed(name, total, level, fade_in=0.12, fade_out=0.01)
         i = int(SR * fade_start); j = min(total, i + int(SR * 1.3))
         b[i:j] *= np.linspace(1, 0, j - i) ** 2; b[j:] = 0
         b = duck(b, env, depth); th = (pan + 1) * np.pi / 4
-        mix[0] += b * np.cos(th) * 1.414; mix[1] += b * np.sin(th) * 1.414
+        beds[0] += b * np.cos(th) * 1.414; beds[1] += b * np.sin(th) * 1.414
     segs_p = [(a + pre, b_ + pre) for a, b_ in segs]
     hits = schedule_hits(segs_p, voice_end, seed=seed + 11, siren=siren)
+    for name, at, g, pan in hits:
+        if name == "rev_extreme_a.wav":  # beds dip 7 dB under the punctuation rev so it stands alone
+            i = int(SR * at); j = min(total, i + int(SR * 1.4)); n = j - i
+            dip = np.ones(n); a_ = int(SR * 0.02); r_ = int(SR * 0.5)
+            dip[:a_] = np.linspace(1, db(-7), a_); dip[a_:n - r_] = db(-7); dip[n - r_:] = np.linspace(db(-7), 1, r_)
+            beds[:, i:j] *= dip
+    mix += beds
     for name, at, g, pan in hits:
         place(mix, hit_sound(name), at, g, pan)
     mix = np.tanh(mix * 1.15) / np.tanh(1.15)  # glue / soft clip
@@ -502,7 +526,7 @@ def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, ta
             "segments": [(round(a, 2), round(b, 2)) for a, b in segs_p],
             "hits": [(h[0], round(h[1], 2), h[2], str(h[3])) for h in hits],
             "cadence": cadence, "stutter": stutter_on, "slash": slash, "tapestop": tapestop, "vari": vari, "rise": rise,
-            "rise_semis": rise_semis, "glitch_mid": glitch_mid, "slap_word": slap_word, "riff": riff, "riff_db": riff_db, "pitch": pitch}
+            "rise_semis": rise_semis, "glitch_mid": glitch_mid, "slap_word": slap_word, "punct": punct, "riff": riff, "riff_db": riff_db, "pitch": pitch}
     if report is not None:
         report.append(info)
     return info
@@ -522,8 +546,8 @@ if __name__ == "__main__":
     ap.add_argument("--rise", action="store_true", help="pitch risers on accent words")
     ap.add_argument("--riffname", default="riff_speedy_a.wav"); ap.add_argument("--siren", default="siren_wail.wav")
     ap.add_argument("--glitchmid", action="store_true"); ap.add_argument("--risesemis", type=float, default=4.5)
-    ap.add_argument("--slapword", action="store_true")
+    ap.add_argument("--slapword", action="store_true"); ap.add_argument("--punct", action="store_true")
     a = ap.parse_args()
     print(json.dumps(render(a.take, a.out, a.cadence, a.stutter, a.slash, a.tapestop, a.pitch, a.sub,
                             a.engine, a.riff, a.crowd, a.lufs, a.wet, a.slap, a.seed, a.vari, a.rise, a.riffname, a.siren or None,
-                            a.glitchmid, a.risesemis, a.slapword), indent=1))
+                            a.glitchmid, a.risesemis, a.slapword, a.punct), indent=1))
