@@ -232,27 +232,80 @@ def cadence_middle(x, segs, seed=3, stutter_on=True, slash_on=True, vari=False, 
     return y, segments(y)
 
 
-def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False):
-    """Stutter (and/or pitch-rise) the last word of the intro phrase; tape-stop the very last word."""
+def word_slap(y, a, b, taps=4, delay=0.19, fb=0.6, level_db=-2.0, tail_frac=0.45):
+    """Dramatic slapback on one word: the last syllable ("...DAY") repeats, decaying and darkening,
+    laid OVER whatever follows: SUNDAY... day... day... day."""
+    n = b - a; t0 = a + int(n * (1 - tail_frac))
+    rep = fade(y[t0:b], 6, 20); d = int(SR * delay); out = y.copy()
+    rep = ff(rep, "lowpass=f=3600,highpass=f=220")
+    for k in range(1, taps + 1):
+        g = db(level_db) * (fb ** (k - 1))
+        if k > 1:
+            rep = ff(rep, "lowpass=f=2400")
+        i = b + int(SR * 0.03) + (k - 1) * d; j = min(len(out), i + len(rep))
+        if i >= len(out):
+            break
+        out[i:j] += rep[:j - i] * g
+    return out
+
+
+def glitch_middle(x, segs, seed=3):
+    """Glitch/repeat in the middle WITHOUT re-timing: the first middle phrase gets a quick doubled
+    repeat (slightly pitched up), and the accent word of the last middle phrase gets a slash cut + stutter."""
+    rng = np.random.default_rng(seed)
+    if len(segs) < 3:
+        return x, segs
+    mids = segs[1:-1]
+    pieces = [x[:int(mids[0][0] * SR)]]
+    cursor = mids[0][0]
+    for mi, (s, e) in enumerate(mids):
+        pieces.append(x[int(cursor * SR):int(s * SR)])
+        w = x[int(s * SR):int(e * SR)]
+        if mi == 0 and len(mids) >= 2 and (e - s) < 1.6:
+            # "HEY JULIE - HEY JULIE" : repeat, second one a hair higher and quieter
+            pieces += [w, np.zeros(int(SR * 0.06)), fade(varispeed(w, 1.06), 4, 30) * db(-2.0)]
+        elif mi == len(mids) - 1:
+            on = last_word_onset(x, (s, e))
+            if on:
+                a = int(on * SR); b = int(e * SR)
+                head = x[int(s * SR):a]
+                pieces.append(slash_cut(head, np.zeros(0)))
+                pieces.append(stutter(x[a:b], n=int(rng.integers(2, 4))))
+            else:
+                pieces.append(w)
+        else:
+            pieces.append(w)
+        cursor = e
+    pieces.append(x[int(cursor * SR):])
+    y = np.concatenate(pieces)
+    return y, segments(y)
+
+
+def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semis=4.5, slap_word=False):
+    """Pitch-rise (way up), dramatic slapback and/or stutter on the last word of the intro phrase;
+    tape-stop the very last word of the clip."""
     y = x
-    if (stutter_on or rise) and segs:
+    if (stutter_on or rise or slap_word) and segs:
         s, e = segs[0]
         on = last_word_onset(y, (s, e))
         if on:
             a = int(on * SR); b = int(e * SR)
             w = y[a:b]
             if rise:
-                w = riser(w, semis=4.5)
+                w = riser(w, semis=rise_semis)
             if stutter_on:
                 w = stutter(w, n=3)
             y = np.concatenate([y[:a], w, y[b:]])
-            segs = segments(y)
+            segs = segments(y)  # measured BEFORE the echo tail bridges the pause, so hits still land on it
+            if slap_word:
+                y = word_slap(y, a, a + len(w))
     if tapestop and segs:
         s, e = segs[-1]
         on = last_word_onset(y, (s, e)) or (s + 0.6 * (e - s))
         a = int(on * SR); b = int(e * SR)
         y = np.concatenate([y[:a], tape_stop(y[a:b]), y[b:]])
-    return y, segments(y)
+        segs = segs[:-1] + [(s, min(e, len(y) / SR))]
+    return y, segs
 
 
 # ----------------------------------------------------------------------------- voice fx
@@ -396,16 +449,20 @@ def hit_sound(name):
 
 # ----------------------------------------------------------------------------- main
 def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, tapestop=False,
-           pitch=-2.0, sub_db=-10.0, engine_db=-17.0, riff_db=-19.0, crowd_db=-26.0, lufs=-9.0,
-           wet_db=-13.0, slap_db=-9.0, seed=3, vari=False, rise=False, riff="riff_speedy_a.wav", siren="siren_wail.wav", report=None):
+           pitch=-2.0, sub_db=-10.0, engine_db=-17.0, riff_db=-16.0, crowd_db=-26.0, lufs=-9.0,
+           wet_db=-13.0, slap_db=-9.0, seed=3, vari=False, rise=False, riff="riff_speedy_a.wav", siren="siren_wail.wav",
+           glitch_mid=False, rise_semis=4.5, slap_word=False, report=None):
     raw = load(take_path)
     raw *= db(-3.0 - peak_db(raw))
     segs = segments(raw)
     v = raw
     if cadence:
         v, segs = cadence_middle(v, segs, seed=seed, stutter_on=stutter_on, slash_on=slash, vari=vari, rise=rise)
-    if stutter_on or tapestop or rise:
-        v, segs = glitch_finale(v, segs, tapestop=tapestop, stutter_on=stutter_on, rise=rise)
+    if glitch_mid:
+        v, segs = glitch_middle(v, segs, seed=seed)
+    if stutter_on or tapestop or rise or slap_word:
+        v, segs = glitch_finale(v, segs, tapestop=tapestop, stutter_on=stutter_on, rise=rise,
+                                rise_semis=rise_semis, slap_word=slap_word)
     v = voice_fx(v, pitch_st=pitch, sub_db=sub_db)
     v = slapback(v, level_db=slap_db)
     v = reverb(v, wet_db=wet_db)
@@ -417,7 +474,7 @@ def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, ta
     p0 = int(SR * pre); n = min(len(v), total - p0); mix[:, p0:p0 + n] += v[:n]
     env = env_follow(mix[0]); env = np.clip(env / (np.percentile(env, 97) + 1e-9), 0, 1)
     fade_start = voice_end + 0.5
-    for name, level, depth, pan in (("engine_bed.wav", engine_db, 5.0, 0.0), (riff, riff_db, 8.0, -0.35),
+    for name, level, depth, pan in (("engine_bed.wav", engine_db, 5.0, 0.0), (riff, riff_db, 6.0, -0.35),
                                     ("crowd_bed.wav", crowd_db, 4.0, 0.35)):
         b = bed(name, total, level, fade_in=0.12, fade_out=0.01)
         i = int(SR * fade_start); j = min(total, i + int(SR * 1.3))
@@ -444,7 +501,8 @@ def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, ta
     info = {"take": take_path, "out": out_path, "voice_s": round(len(v) / SR, 2), "total_s": round(total / SR, 2),
             "segments": [(round(a, 2), round(b, 2)) for a, b in segs_p],
             "hits": [(h[0], round(h[1], 2), h[2], str(h[3])) for h in hits],
-            "cadence": cadence, "stutter": stutter_on, "slash": slash, "tapestop": tapestop, "vari": vari, "rise": rise, "pitch": pitch}
+            "cadence": cadence, "stutter": stutter_on, "slash": slash, "tapestop": tapestop, "vari": vari, "rise": rise,
+            "rise_semis": rise_semis, "glitch_mid": glitch_mid, "slap_word": slap_word, "riff": riff, "riff_db": riff_db, "pitch": pitch}
     if report is not None:
         report.append(info)
     return info
@@ -456,13 +514,16 @@ if __name__ == "__main__":
     ap.add_argument("--cadence", action="store_true"); ap.add_argument("--stutter", action="store_true")
     ap.add_argument("--slash", action="store_true"); ap.add_argument("--tapestop", action="store_true")
     ap.add_argument("--pitch", type=float, default=-2.0); ap.add_argument("--sub", type=float, default=-10.0)
-    ap.add_argument("--engine", type=float, default=-17.0); ap.add_argument("--riff", type=float, default=-19.0)
+    ap.add_argument("--engine", type=float, default=-17.0); ap.add_argument("--riff", type=float, default=-16.0)
     ap.add_argument("--crowd", type=float, default=-26.0); ap.add_argument("--lufs", type=float, default=-9.0)
     ap.add_argument("--wet", type=float, default=-13.0); ap.add_argument("--slap", type=float, default=-9.0)
     ap.add_argument("--seed", type=int, default=3)
     ap.add_argument("--vari", action="store_true", help="tape-style varispeed cadence (pitch moves with speed)")
     ap.add_argument("--rise", action="store_true", help="pitch risers on accent words")
     ap.add_argument("--riffname", default="riff_speedy_a.wav"); ap.add_argument("--siren", default="siren_wail.wav")
+    ap.add_argument("--glitchmid", action="store_true"); ap.add_argument("--risesemis", type=float, default=4.5)
+    ap.add_argument("--slapword", action="store_true")
     a = ap.parse_args()
     print(json.dumps(render(a.take, a.out, a.cadence, a.stutter, a.slash, a.tapestop, a.pitch, a.sub,
-                            a.engine, a.riff, a.crowd, a.lufs, a.wet, a.slap, a.seed, a.vari, a.rise, a.riffname, a.siren or None), indent=1))
+                            a.engine, a.riff, a.crowd, a.lufs, a.wet, a.slap, a.seed, a.vari, a.rise, a.riffname, a.siren or None,
+                            a.glitchmid, a.risesemis, a.slapword), indent=1))
