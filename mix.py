@@ -453,7 +453,8 @@ def schedule_hits(segs, total_s, seed=11, siren="siren_wail.wav"):
         elif gap >= 0.14 and rng.random() < 0.5:
             hits.append((next(revs), at, -8.0 + float(rng.uniform(-2, 2)), pan))
     end = segs[-1][1] if segs else total_s
-    hits += [("pyro_explosion.wav", max(0.0, end - 0.05), -3.0, 0.0), ("rev_low", end + 0.02, -3.0, 0.25)]
+    # finale: pyro + the dragster launch with the screaming tires (Kevin: "hilarious, bring that back")
+    hits += [("pyro_explosion.wav", max(0.0, end - 0.05), -3.0, 0.0), ("rev_extreme_b.wav", end + 0.02, -1.0, 0.25)]
     return hits
 
 
