@@ -41,15 +41,17 @@ with 400 / 429 / 502.
 
 ```bash
 export ELEVENLABS_API_KEY=...        # never paste keys into a chat
-export ELEVEN_VOICE_ID=mtrellq69YZsNwzUSyXh
+export ELEVEN_VOICE_ID=...           # the voice prod runs; see .env.example and HANDOFF.md section 2
 pip install -r requirements.txt      # plus ffmpeg (with librubberband) on PATH
 python3 selftest.py                  # offline: script -> mix -> mp4 on a stored take, no API calls
+python3 test_script.py               # offline: the verbatim rule
 python3 main.py                      # http://localhost:8080
-./deploy.sh                          # Cloud Run, us-central1
+./deploy.sh                          # Cloud Run, us-central1; sources .env if present
 ```
 
 Env vars: `ELEVENLABS_API_KEY`, `ELEVEN_VOICE_ID`, optional `MAX_CHARS`, `RATE_PER_MIN`, `RATE_PER_DAY`,
-`APP_SECRET` (when set, clients must send `X-Truckafy-Key`), `ELEVEN_MODEL` (default `eleven_v3`).
+`APP_SECRET` (when set, clients must send `X-Truckafy-Key`), `ELEVEN_MODEL` (default `eleven_v3`),
+`LOGO_STYLE` (`fire` | `chrome` | `ice`, default `fire`; prod runs `chrome`).
 
 ## Layout
 
