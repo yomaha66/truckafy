@@ -19,7 +19,7 @@ import 'package:share_plus/share_plus.dart';
 
 const String kApiBase = String.fromEnvironment(
   'API_URL',
-  defaultValue: 'https://truckafy-engine-363682438916.us-central1.run.app',
+  defaultValue: 'https://truckafy-engine-REPLACE_ME-uc.a.run.app',
 );
 
 // Optional shared secret (must match APP_SECRET on the service):

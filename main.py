@@ -55,24 +55,30 @@ TTS_MODELS = [m for m in [
     "gemini-2.5-pro-preview-tts",
 ] if m]
 _working_model = None
+TTS_BACKEND = os.environ.get("TTS_BACKEND", "eleven" if os.environ.get("ELEVENLABS_API_KEY") else "gemini")
 
 DEFAULT_VOICE = os.environ.get("TTS_VOICE", "Algenib")   # gravelly
 VOICES = {"Algenib", "Charon", "Fenrir", "Orus", "Puck", "Enceladus",
           "Iapetus", "Alnilam", "Gacrux", "Sadaltager", "Zubenelgenubi"}
 
 ANNOUNCER_PROMPT = (
-    "You are a vein-popping 1990s monster truck rally radio announcer screaming into a "
-    "distorted microphone at the Pontiac Silverdome. Read the text between the triple "
-    "quotes EXACTLY as written — do not add, remove, or change a single word, and do not "
-    "read the quotes. Deliver mundane, everyday phrases (groceries, dentist appointments, "
-    "taking out the trash) with catastrophic, world-ending intensity: deep chest growls, "
-    "extreme vocal strain, rising volume through every sentence, and slam the FINAL WORD "
-    "of every sentence like it is the name of the event. Take a hard dramatic pause at "
-    "every comma and period.\n\n"
+    "You are the announcer on a 1980s-1990s monster truck rally radio commercial, in the style of the "
+    "classic SUNDAY-SUNDAY-SUNDAY arena screamer ads -- the Jan Gabriel / Steve Evans school of announcing. "
+    "Delivery: a huge, booming, gravel-throated baritone pushed to the edge of breaking, enormous lung power, "
+    "rapid-fire pace with no dead air. Every sentence climbs in pitch and volume and SLAMS the final word. "
+    "Stretch and growl the biggest words (MONNNSTER, CRRRUSHING, SUNNNDAY). Punch every hard consonant. "
+    "Sell everything like it is side-by-side drag racing, car crushing, mud bogging, fire-breathing jet car "
+    "mayhem -- even when it is groceries or a dentist appointment. Hit a hard dramatic stop at every comma "
+    "and period. Never calm, never conversational, never friendly -- this is a man yelling over a stadium PA. "
+    "Read the text between the triple quotes EXACTLY as written: do not add, remove, or change a single "
+    "word, and do not read the quotes.\n\n"
 )
 
 INTROS = [
+    "SUNDAY! SUNDAY! SUNDAY! ",
     "THIS SUNDAY AT THE DOME! ",
+    "WE'LL SELL YOU THE WHOLE SEAT, BUT YOU'LL ONLY NEED THE EDGE! ",
+    "SIDE BY SIDE DRAG RACING! CAR CRUSHING! MUD BOGGING! AND THE FIRE-BREATHING JET CAR! ",
     "ONE NIGHT ONLY! BE THERE OR BE SQUARE! ",
     "BEWARE! BEWARE! BEWARE! ",
     "KIDS SEATS ARE STILL FIVE BUCKS! ",
@@ -80,6 +86,15 @@ INTROS = [
 
 
 def synthesize(text: str, voice: str) -> bytes:
+    if TTS_BACKEND == "eleven":
+        try:
+            import eleven
+            t0 = time.time()
+            data = eleven.tts_pcm24k(text)
+            log.info("tts ok backend=eleven bytes=%d %.2fs", len(data), time.time() - t0)
+            return data
+        except Exception as e:  # noqa: BLE001
+            log.warning("eleven failed, falling back to gemini: %s", e)
     """Return raw PCM (s16le, 24 kHz, mono) from Gemini TTS."""
     global _working_model
     prompt = ANNOUNCER_PROMPT + '"""' + text + '"""'
@@ -167,89 +182,82 @@ def stage_sfx(text, voice_path, intensity):
             hits.append(("pyro_explosion.wav", at, 0.9 * g))
             hits.append(("glass_shatter.wav", at + 0.12, 0.6 * g))
         else:
-            asset = "v8_rev.wav" if alt % 2 == 0 else "stadium_airhorn.wav"
+            asset = "v8_rev.wav"  # no air horns (Kevin)
             alt += 1
-            hits.append((asset, at, 0.55 * g))
+            hits.append((asset, at, 0.85 * g))
     # grand finale on the last word
     end_at = (trailing[0][0] if trailing else dur) - 0.05
     hits.append(("pyro_explosion.wav", max(end_at, 0), 1.0 * g))
     hits.append(("glass_shatter.wav", max(end_at + 0.15, 0), 0.7 * g))
-    hits.append(("stadium_airhorn.wav", max(end_at + 0.05, 0), 0.6 * g))
-    if intensity > 0.6:  # opening rev before the first word
-        hits.append(("v8_rev.wav", 0.0, 0.5 * g))
+    hits.append(("v8_rev.wav", max(end_at + 0.05, 0), 0.9 * g))
+    if intensity > 0.3:  # opening rev before the first word
+        hits.append(("v8_rev.wav", 0.0, 0.8 * g))
     return hits, dur
 
 
 def master(raw_pcm_path, out_path, text, intensity, use_music=True):
-    """Full FFmpeg chain. raw_pcm_path is s16le/24k/mono."""
+    """Full FFmpeg chain. raw_pcm_path is s16le/24k/mono. Everything scales with intensity."""
     inten = max(0.0, min(1.0, float(intensity)))
-    # --- layer 1.5: pitch & formant drop (-2 .. -4 semitones, formants follow)
-    pitch = 2 ** (-(2.0 + 2.0 * inten) / 12)
-    # --- layer 2: V-EQ + saturation
-    drive_db = 4 + 8 * inten
-    # --- layer 3: slapback echo
-    fb = 0.30 + 0.20 * inten
-    # --- layer 4: music bed level
+    pitch = 2 ** (-(4.0 * inten) / 12)
+    drive_db = 8 * inten
+    fb = 0.25 + 0.25 * inten
     music_db = -14 + 6 * inten
+    engine_db = -12 + 10 * inten
+    crowd_db = -20 + 8 * inten
 
-    # first pass: voice-only processing to a WAV, so silence detection sees the
-    # performance (pauses) rather than the echo tail.
     voice_wav = raw_pcm_path + ".voice.wav"
-    run(["ffmpeg", "-y", "-hide_banner", "-f", "s16le", "-ar", "24000", "-ac", "1",
-         "-i", raw_pcm_path, "-af",
-         f"rubberband=pitch={pitch:.4f}:tempo=1.0:pitchq=quality,"
-         "aresample=44100", "-ar", "44100", voice_wav])
+    sub_db = -14 + 8 * inten  # octave-down sub layer = chest
+    src = ["ffmpeg", "-y", "-hide_banner", "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", raw_pcm_path]
+    if inten > 0:
+        fc = (f"[0:a]aresample=44100,asplit=2[m][s];"
+              f"[m]rubberband=pitch={pitch:.4f}:tempo=1.0:pitchq=quality[mp];"
+              f"[s]rubberband=pitch=0.5:tempo=1.0,lowpass=f=220,volume={sub_db:.1f}dB[sub];"
+              f"[mp][sub]amix=inputs=2:duration=first:normalize=0[out]")
+        run(src + ["-filter_complex", fc, "-map", "[out]", "-ar", "44100", "-c:a", "pcm_f32le", voice_wav])
+    else:
+        run(src + ["-af", "aresample=44100", "-ar", "44100", "-c:a", "pcm_f32le", voice_wav])
 
     hits, vdur = stage_sfx(text, voice_wav, inten)
-    tail = 1.6  # let the echo + finale ring out
+    tail = 1.8
     total = vdur + tail
 
+    beds = []  # (file, dB, duck ratio)
+    if use_music and os.path.exists(os.path.join(ASSETS, "heavy_metal_loop.wav")):
+        beds.append(("heavy_metal_loop.wav", music_db, 12))
+    for name, db in (("engine_bed.wav", engine_db), ("crowd_bed.wav", crowd_db)):
+        if os.path.exists(os.path.join(ASSETS, name)):
+            beds.append((name, db, 4))
+
     inputs = ["-i", voice_wav]
-    if use_music:
-        inputs += ["-stream_loop", "-1", "-i", os.path.join(ASSETS, "heavy_metal_loop.wav")]
+    for name, _, _ in beds:
+        inputs += ["-stream_loop", "-1", "-i", os.path.join(ASSETS, name)]
     for asset, _at, _g in hits:
         inputs += ["-i", os.path.join(ASSETS, asset)]
 
     f = []
-    # voice chain
-    f.append(
-        "[0:a]"
-        "equalizer=f=150:t=q:w=1.0:g=4,"
-        "equalizer=f=800:t=q:w=1.2:g=-3,"
-        "equalizer=f=4000:t=q:w=1.0:g=6,"
-        f"volume={drive_db:.1f}dB,asoftclip=type=tanh:threshold=0.55:output=0.9,"
-        f"aecho=0.8:0.9:180|360|540:{fb:.2f}|{fb*0.55:.2f}|{fb*0.3:.2f},"
-        "vibrato=f=0.5:d=0.012,"
-        f"apad=pad_dur={tail},atrim=0:{total:.3f},asetpts=PTS-STARTPTS,"
-        "asplit=2[v][vsc]"
-    )
+    vf = ["[0:a]"]
+    if inten > 0:
+        vf.append("equalizer=f=110:t=q:w=1.0:g=5,equalizer=f=250:t=q:w=1.2:g=3,equalizer=f=900:t=q:w=1.2:g=-2,equalizer=f=3000:t=q:w=1.0:g=3,")
+        vf.append(f"volume={drive_db:.1f}dB,asoftclip=type=tanh:threshold={0.95 - 0.35 * inten:.2f}:output=0.9,")
+        vf.append(f"aecho=0.8:0.85:45|110|230|420|700:{fb:.2f}|{fb*0.7:.2f}|{fb*0.5:.2f}|{fb*0.35:.2f}|{fb*0.2:.2f},")
+    vf.append(f"apad=pad_dur={tail},atrim=0:{total:.3f},asetpts=PTS-STARTPTS")
+    nb = len(beds)
+    vf.append((f",asplit={nb + 1}[v]" + "".join(f"[vsc{i}]" for i in range(nb))) if nb else "[v]")
+    f.append("".join(vf))
     mix_in = ["[v]"]
-    n_in = 1
-    if use_music:
-        f.append(
-            f"[1:a]atrim=0:{total:.3f},asetpts=PTS-STARTPTS,volume={music_db:.1f}dB,"
-            "afade=t=out:st=%.3f:d=1.2[m]" % (total - 1.2)
-        )
-        # duck the bed -12 dB whenever the voice speaks (fast attack, quick release)
-        f.append("[m][vsc]sidechaincompress=threshold=0.03:ratio=12:attack=10:release=180:makeup=1[md]")
-        mix_in.append("[md]")
-        n_in = 2
-    else:
-        f.append("[vsc]anullsink")
+    for i, (name, db, ratio) in enumerate(beds):
+        f.append(f"[{1 + i}:a]atrim=0:{total:.3f},asetpts=PTS-STARTPTS,volume={db:.1f}dB,"
+                 f"afade=t=out:st={total - 1.2:.3f}:d=1.2[b{i}]")
+        f.append(f"[b{i}][vsc{i}]sidechaincompress=threshold=0.03:ratio={ratio}:attack=10:release=180:makeup=1[bd{i}]")
+        mix_in.append(f"[bd{i}]")
     for i, (asset, at, gain) in enumerate(hits):
-        idx = n_in + i
-        f.append(f"[{idx}:a]volume={gain:.2f},adelay={int(at*1000)}|{int(at*1000)}[s{i}]")
+        f.append(f"[{1 + nb + i}:a]volume={gain:.2f},adelay={int(at * 1000)}|{int(at * 1000)}[s{i}]")
         mix_in.append(f"[s{i}]")
-    f.append(
-        "".join(mix_in) + f"amix=inputs={len(mix_in)}:duration=first:dropout_transition=0:normalize=0,"
-        # mastering: loudness-war compressor + brickwall limiter
-        "acompressor=threshold=-16dB:ratio=6:attack=4:release=90:makeup=6,"
-        "alimiter=limit=0.97:attack=3:release=40:level=false,"
-        "aformat=channel_layouts=stereo[out]"
-    )
-    cmd = ["ffmpeg", "-y", "-hide_banner"] + inputs + [
-        "-filter_complex", ";".join(f), "-map", "[out]",
-        "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "192k", out_path]
+    f.append("".join(mix_in) + f"amix=inputs={len(mix_in)}:duration=first:dropout_transition=0:normalize=0,"
+             "acompressor=threshold=-16dB:ratio=6:attack=4:release=90:makeup=6,"
+             "alimiter=limit=0.97:attack=3:release=40:level=false,aformat=channel_layouts=stereo[out]")
+    cmd = ["ffmpeg", "-y", "-hide_banner"] + inputs + ["-filter_complex", ";".join(f), "-map", "[out]",
+           "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "192k", out_path]
     run(cmd)
     return hits, vdur
 
