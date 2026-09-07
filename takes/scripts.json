@@ -1,0 +1,6 @@
+{
+ "t1_baseline": "[shouts] Sunday, Sunday, SUUUNDAY! ... [excited][shouts] Hey Julie, can you grab dog food for Jasper on the way HOOOME! ... [shouts] We are almost OOOUT!",
+ "t2_slowmiddle": "[shouts] Sunday! Sunday! SUUUNDAY! ... [excited] Hey Julie... can you GRAB... dog food... for JASPER... on the way... HOOOME?! ... [shouts] We are almost OUUUT!",
+ "t3_staccato": "[shouts] SUNDAY! SUNDAY! SUNDAY! [excited][shouts] Hey Julie, can you grab dog food for Jasper, on... the... way... HOOOME! ... [shouts] WE. ARE. ALMOST. OUUUUT!",
+ "t4_laugh": "[shouts] Sunday, Sunday, SUUUNDAY! [excited][shouts] Hey Julie, can you grab dog food for Jasper on the way HOOOME?! ... [shouts] We are almost OUUUT! [laughs]"
+}

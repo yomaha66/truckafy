@@ -198,7 +198,7 @@ def stage_sfx(text, voice_path, intensity):
 def master(raw_pcm_path, out_path, text, intensity, use_music=True):
     """Full FFmpeg chain. raw_pcm_path is s16le/24k/mono. Everything scales with intensity."""
     inten = max(0.0, min(1.0, float(intensity)))
-    pitch = 2 ** (-(4.0 * inten) / 12)
+    pitch = 2 ** (-(float(os.environ.get("PITCH_SEMI", 4.0)) * inten) / 12)
     drive_db = 8 * inten
     fb = 0.25 + 0.25 * inten
     music_db = -14 + 6 * inten

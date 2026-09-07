@@ -12,3 +12,5 @@ previews.json
 .eleven_voice_id
 .service_url
 .env
+!takes/
+!takes/*.mp3
