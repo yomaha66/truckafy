@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Deploy the TRUCK-A-FY engine to Cloud Run. Run from ~/truckafy in Cloud Shell (source ~/.truckafy_env first).
+# Deploy the TRUCK-A-FY engine to Cloud Run. Run from the repo root; keys come from .env (gitignored).
 set -euo pipefail
-: "${ELEVENLABS_API_KEY:?export ELEVENLABS_API_KEY first}"
-: "${ELEVEN_VOICE_ID:?export ELEVEN_VOICE_ID first}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$HERE/.env" ]; then set -a; . "$HERE/.env"; set +a; fi
+: "${ELEVENLABS_API_KEY:?set ELEVENLABS_API_KEY in .env}"
+: "${ELEVEN_VOICE_ID:?set ELEVEN_VOICE_ID in .env}"
 PROJECT=${PROJECT:-gen-lang-client-0287073066}
 REGION=${REGION:-us-central1}
 gcloud config set project "$PROJECT" >/dev/null

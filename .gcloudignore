@@ -12,7 +12,13 @@ find_voices.py
 gen_sfx.py
 gen_sfx2.py
 selftest.py
+test_script.py
 library.json
 HANDOFF.md
 CLAUDE.md
 README.md
+
+# never ship local secrets or the Windows venv to Cloud Build
+.env
+.env.example
+.venv/
