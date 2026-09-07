@@ -6,6 +6,7 @@ set -euo pipefail
 PROJECT=${PROJECT:-gen-lang-client-0287073066}
 REGION=${REGION:-us-central1}
 gcloud config set project "$PROJECT" >/dev/null
+echo "style: ${LOGO_STYLE:-fire}"
 gcloud run deploy truckafy-engine \
   --source . --quiet \
   --region "$REGION" \

@@ -335,10 +335,19 @@ def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semi
 
 
 # ----------------------------------------------------------------------------- voice fx
-def voice_fx(x, pitch_st=-2.0, sub_db=-10.0, drive_db=6.0, formant=False):
+def voice_fx(x, pitch_st=-2.0, sub_db=-10.0, drive_db=6.0, formant=False, human=False):
+    """human=True is the lighter chain: no octave-down layer (that is what makes a voice sound like a machine),
+    a touch of drive instead of a wall of it, gentle compression, the announcer's own tone left alone."""
     ratio = 2 ** (pitch_st / 12)
     fm = ":formant=preserved" if formant else ""
     main = ff(x, f"rubberband=pitch={ratio:.5f}:tempo=1.0:pitchq=quality{fm}") if abs(pitch_st) > 0.05 else x
+    if human:
+        chain = ("highpass=f=80,"
+                 "equalizer=f=160:t=q:w=1.0:g=2,equalizer=f=3000:t=q:w=1.0:g=2,"
+                 "volume=2.0dB,asoftclip=type=tanh:threshold=0.9:output=0.95,"
+                 "acompressor=threshold=-16dB:ratio=2.5:attack=8:release=120:makeup=2,"
+                 "alimiter=limit=0.95:attack=2:release=30:level=false")
+        return ff(main, chain)
     sub = ff(x, "rubberband=pitch=0.5:tempo=1.0,lowpass=f=200:p=2") * db(sub_db)
     n = min(len(main), len(sub)); v = main[:n] + sub[:n]
     chain = ("highpass=f=70,"
@@ -527,7 +536,7 @@ def _master(v, voice_end_rel, hits, out_path, engine_db=-17.0, riff_db=-16.0, cr
 
 def render_words(take_path, out_path, alignment, intro_line="", seed=3, engine_db=-17.0, riff_db=-13.0, crowd_db=-26.0,
                  lufs=-9.0, wet_db=-13.0, slap_db=-9.0, riff="riff_speedy_a.wav", siren="siren_wail.wav", licks=True,
-                 normalise=True, riff_duck=4.5):
+                 normalise=True, riff_duck=4.5, human=True):
     """The word-accurate pipeline (see edit.py). Falls back to render() when there is no alignment."""
     import edit
     raw = load(take_path)
@@ -536,13 +545,13 @@ def render_words(take_path, out_path, alignment, intro_line="", seed=3, engine_d
     if len(ws) < 2:
         return render(take_path, out_path, seed=seed, rise=True, rise_semis=10.0, slap_word=True, glitch_mid=True,
                       tapestop=True, punct=True, riff=riff, riff_db=riff_db, engine_db=engine_db, crowd_db=crowd_db, lufs=lufs)
-    norm = edit.normalise_plan(ws, raw) if normalise else dict(rate=0, tempo=1.0, f0=0, pitch=-2.0)
-    fx = edit.plan_effects(ws, seed=seed)
+    norm = edit.normalise_plan(ws, raw, human=human) if normalise else dict(rate=0, tempo=1.0, f0=0, pitch=(0.0 if human else -2.0), ok=True)
+    fx = edit.plan_effects(ws, seed=seed, human=human)
     v, intro_span = edit.assemble(raw, ws, fx, tempo=norm["tempo"], seed=seed)
     if intro_span:
         v = word_slap(v, int(intro_span[0] * SR), int(intro_span[1] * SR))
     pitch = norm["pitch"]
-    v = voice_fx(v, pitch_st=pitch, sub_db=(-10.0 if pitch <= 0.5 else -15.0), formant=abs(pitch) > 2.2)
+    v = voice_fx(v, pitch_st=pitch, sub_db=(-10.0 if pitch <= 0.5 else -15.0), formant=abs(pitch) > 2.2, human=human)
     v = slapback(v, level_db=slap_db)
     v = reverb(v, wet_db=wet_db)
     hits = edit.schedule_hits(ws, PRE, seed=seed + 11, siren=siren, licks=licks)

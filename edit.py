@@ -178,18 +178,41 @@ def median_f0(x, sr=SR):
         return TARGET_F0
 
 
-def normalise_plan(ws, x):
-    """Global tempo factor (>1 = faster) and the pitch shift to use, from the take's own numbers."""
+def normalise_plan(ws, x, human=True):
+    """Global tempo factor (>1 = faster) and the pitch shift to use, from the take's own numbers.
+    human=True keeps the voice a voice: no pitch shift unless the take is unusually bright (then a gentle drop),
+    at most 8 % tempo, and the numbers are reported so the caller can re-roll a take that is out of range
+    instead of bending it into an angry robot."""
     rate = letters_per_second(ws)
-    tempo = float(np.clip(TARGET_RATE / rate, 1.0, 1.25))   # a fast take is left alone; a slow one is pulled up
     f0 = median_f0(x)
-    pitch = float(np.clip(PITCH_BASE + 12 * np.log2(TARGET_F0 / f0), -3.0, 3.0))  # deep take -> lift it, bright -> drop it
-    return dict(rate=round(rate, 2), tempo=round(tempo, 3), f0=round(f0, 1), pitch=round(pitch, 2))
+    if human:
+        tempo = float(np.clip(TARGET_RATE / rate, 1.0, 1.08))
+        pitch = float(np.clip(12 * np.log2(160.0 / f0), -1.5, 0.0)) if f0 > 160.0 else 0.0
+    else:
+        tempo = float(np.clip(TARGET_RATE / rate, 1.0, 1.25))
+        pitch = float(np.clip(PITCH_BASE + 12 * np.log2(TARGET_F0 / f0), -3.0, 3.0))
+    ok = (f0 >= 100.0) and (rate >= 8.5)
+    return dict(rate=round(rate, 2), tempo=round(tempo, 3), f0=round(f0, 1), pitch=round(pitch, 2), ok=ok)
+
+
+def take_score(alignment, x, intro_line=""):
+    """Quick quality number for a raw take (higher = closer to the signed-off delivery), for re-roll decisions."""
+    ws = refine_words(words_from_alignment(alignment, intro_line), x)
+    if len(ws) < 2:
+        return 0.0, {}
+    n = normalise_plan(ws, x)
+    pace = min(1.0, n["rate"] / TARGET_RATE)
+    pitch = 1.0 - min(1.0, abs(np.log2(max(n["f0"], 1.0) / 135.0)) * 1.5)
+    return round(0.5 * pace + 0.5 * pitch, 3), n
 
 
 # ----------------------------------------------------------------------------- the plan
-def plan_effects(ws, seed=3):
-    """Decide which words get which effect. Returns a dict keyed by word index."""
+def plan_effects(ws, seed=3, human=True):
+    """Decide which words get which effect. Returns a dict keyed by word index.
+    human=True budgets ONE glitch in the body (a doubled phrase, a stutter or a slash cut — never stacked) on
+    top of the intro riser/slapback and the tape-stop on the last word, so the announcer stays a person."""
+    if human:
+        return plan_effects_human(ws, seed)
     rng = np.random.default_rng(seed)
     sents = sentences(ws)
     body = [s for s in sents if not s[0].intro]
@@ -236,6 +259,44 @@ def plan_effects(ws, seed=3):
         d["slash"] = True
     if len(body) == 1 and len(final) >= 3 and rng.random() < 0.6:
         d["stutter"] = True
+    return fx
+
+
+def plan_effects_human(ws, seed=3):
+    rng = np.random.default_rng(seed)
+    sents = sentences(ws)
+    body = [s for s in sents if not s[0].intro]
+    fx = {}
+    idx = {id(w): i for i, w in enumerate(ws)}
+    intro_word = ws[0].clean.lower() if ws and ws[0].intro else None
+    if ws and ws[0].intro:
+        fx[idx[id(sents[0][-1])]] = {"riser": True, "slap": True}
+    if not body:
+        return fx
+    options = []
+    first = body[0]
+    if len(first) >= 5:
+        start = 1 if (intro_word and first[0].clean.lower() == intro_word) else 0
+        phrase = []
+        for w in first[start:-1]:
+            phrase.append(w)
+            if sum(v.t1 - v.t0 for v in phrase) >= 0.55 or len(phrase) == 3:
+                break
+        dur = sum(v.t1 - v.t0 for v in phrase)
+        if 0.3 <= dur <= 1.4 and first[-1].t0 - phrase[-1].t1 >= 0.9:
+            options.append(("double", phrase))
+    if len(body) >= 2:
+        options.append(("stutter", body[-2][-1]))
+        options.append(("slash", body[-2][-1]))
+    if options and (len(body) >= 2 or rng.random() < 0.5):
+        weights = np.array([{"double": 0.45, "stutter": 0.35, "slash": 0.2}[k] for k, _ in options])
+        kind, target = options[int(rng.choice(len(options), p=weights / weights.sum()))]
+        if kind == "double":
+            fx[idx[id(target[0])]] = {"double_from": idx[id(target[0])], "double_to": idx[id(target[-1])]}
+        else:
+            fx.setdefault(idx[id(target)], {})[kind] = True
+    w = body[-1][-1]
+    fx.setdefault(idx[id(w)], {})["tapestop"] = True
     return fx
 
 
@@ -305,6 +366,15 @@ def assemble(x, ws, fx, tempo=1.0, cap_accent=1.05, cap_intro=1.6, cap_final=1.2
             w.t0 /= tempo; w.t1 /= tempo
     e = mix.frame_db(x)
     lead = 0.012; tail = 0.03
+    # anything the announcer does AFTER the last word (a laugh from a [laughs] tag) is kept, and the last word
+    # is then left alone instead of tape-stopped
+    tail_end = None
+    if ws:
+        after = ws[-1].t1 + 0.05
+        trail = mix.segments(x[int(after * SR):], thr_db=-34, min_gap=0.2, min_len=0.25) if len(x) > after * SR else []
+        if trail:
+            tail_end = min(len(x) / SR, after + trail[-1][1] + 0.12)
+            fx.get(len(ws) - 1, {}).pop("tapestop", None)
     pieces = []
     pos = 0.0          # output seconds so far
     intro_span = None
@@ -361,6 +431,10 @@ def assemble(x, ws, fx, tempo=1.0, cap_accent=1.05, cap_intro=1.6, cap_final=1.2
             g = gap_piece(x, e, b, ws[i + 1].t0 - lead, gap_after(ws, i))
             pieces.append(g); pos += len(g) / SR
         i += 1
+    if tail_end and ws:
+        extra = mix.fade(_slice(x, ws[-1].t1 + tail, tail_end), 2, 60)
+        pieces.append(extra)
+        ws[-1].o1 = pos + len(extra) / SR
     y = np.concatenate([p for p in pieces if len(p)])
     return y, intro_span
 
