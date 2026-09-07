@@ -1,30 +1,25 @@
-# TRUCK-A-FY  project notes for Claude Code
+# TRUCK-A-FY — notes for Claude
 
-Read HANDOFF.md first. It has the state, the verdicts, and the task list.
+Read HANDOFF.md first: state, pipeline, verdicts, next tasks.
 
 ## Non-negotiables
-- User text is read verbatim. Emphasis (CAPS, stretched vowels, ElevenLabs audio tags, glitch edits) yes; word changes no.
-- Audio quality is the product. Do not spend time on the Flutter app until Kevin signs off on the sound.
-- Never print, log, or commit API keys. They come from env vars only (`ELEVENLABS_API_KEY`, `GEMINI_API_KEY`).
-- Claude cannot hear audio. Every change to the sound must produce files in `listen/` for Kevin to play, and the message to him must say exactly what differs between variants so one listen decides something. Prefer 23 short variants over one long one.
+- User text is read verbatim. Emphasis (CAPS, stretched vowels, audio tags, glitch edits, repeating the user's own
+  words) yes; word changes no.
+- The sound is signed off. `RECIPE` in `main.py` and the chain in `mix.py` change only when Kevin asks, and then as
+  2–3 short A/B variants he can listen to.
+- No air horns, no crash sounds, one extreme rev per clip as punctuation.
+- Never print, log, or commit API keys. `ELEVENLABS_API_KEY` and `ELEVEN_VOICE_ID` come from env vars only.
+- Kevin never touches Cloud Shell. Deliver renders as files in chat; drive Cloud Shell from the browser yourself.
 
 ## Working loop
-1. Edit `main.py` / `eleven.py`.
-2. `python3 selftest.py /tmp/st.mp3`  must pass after any `master()` change (no API cost).
-3. Render real variants into `listen/<descriptive_name>.mp3`, then `python3 listen/build.py`.
-4. Tell Kevin what to listen for. Wait for his verdict. Record it in HANDOFF.md section 5.
-
-## Costs and limits
-- ElevenLabs free tier: 10k credits/month, 3 custom voice slots (full). Each full render of the ~100-char demo line is ~100150 credits; a Voice Design or remix call generates three 30-s previews and is the expensive operation  don't run bake-offs casually.
-- Gemini TTS is a fallback only; Kevin rejected its sound.
-
-## Style of the sound (Kevin's words)
-"Completely off the rails and on the verge of unhinged." Deep, masculine, gravel; engines revving; no air horns; glitch/stutter/slash cuts on accented words; big dynamic swings, not monotone. Reference: 2002 Monster Jam Skydome TV spot.
+1. Edit in the sandbox clone. `python3 selftest.py` must pass after any `mix.py` / `video.py` / `script.py` change.
+2. Anything needing ElevenLabs or the live service runs in Cloud Shell (`~/truckafy`); move code there as a
+   base64 patch in ≤12-line chunks, md5-check, `git am`, push. Pull back into the sandbox from GitHub.
+3. Deploy with `./deploy.sh 2>&1 | grep -v -i key`, then `curl` a real render and check `x-truckafy-seconds`.
+4. Tell Kevin what changed in one or two sentences and hand him the file.
 
 ## Layout
-- `main.py`  Flask + FFmpeg chain (`stage_sfx`, `master`)
-- `eleven.py`  ElevenLabs client and text prep (`hype`)
-- `assets/`  real SFX/beds (generated once via `gen_sfx.py`; commit them)
-- `listen/`  listening room; mp3s are gitignored
-- `selftest.py`  offline chain test
-- `deploy.sh`, `Dockerfile`  Cloud Run (stale, see HANDOFF.md)
+- `main.py` Flask app (`/`, `/truckafy`, `/health`), rate limiter, `RECIPE`
+- `script.py` text → performance script · `eleven.py` ElevenLabs client · `mix.py` post-production · `video.py` MP4
+- `static/index.html` web app · `assets/` SFX · `fonts/` · `takes/` raw takes for offline work
+- `deploy.sh`, `Dockerfile`, `.gcloudignore` — Cloud Run (2 CPU, 2 GiB, concurrency 2, 300 s)
