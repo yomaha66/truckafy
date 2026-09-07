@@ -1,0 +1,17 @@
+{
+ "dentist_first": {
+  "text": "Reminder: dentist appointment Tuesday at 3. Don't forget to floss.",
+  "intro": "first",
+  "script": "[shouts] Reminder! Reminder! REEEMINDER! ... [excited][shouts] Reminder: dentist appointment Tuesday AT 3! ... [shouts] Don't forget to FLOOOSS!"
+ },
+ "birthday_arena": {
+  "text": "Happy birthday Mom, love you! See you Sunday for dinner.",
+  "intro": "arena",
+  "script": "[shouts] Sunday! Sunday! SUUUNDAY! ... [excited][shouts] Happy birthday Mom, love YOOOU! ... [shouts] See you Sunday for DIIINNER!"
+ },
+ "milk_none": {
+  "text": "Can you pick up milk, eggs, and bread? Also the dog needs a bath.",
+  "intro": "first",
+  "script": "[shouts] Can! Can! CAAAN! ... [excited][shouts] Can you pick up milk, eggs, and BREEEAD! ... [shouts] Also the dog needs a BAAATH!"
+ }
+}

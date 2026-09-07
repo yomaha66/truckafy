@@ -52,6 +52,16 @@ def tts_mp3(text, voice_id=None):
             "voice_settings": {"stability": 0.0, "similarity_boost": 0.6, "use_speaker_boost": True}}
     return _post("/v1/text-to-speech/" + vid + "?output_format=mp3_44100_128", body)
 
+def tts_mp3_raw(script_text, voice_id=None):
+    """TTS of an already-built performance script (no hype() pass). Used by the app endpoint."""
+    vid = voice_id or VOICE_ID
+    if not vid:
+        raise RuntimeError("ELEVEN_VOICE_ID is not set")
+    body = {"text": script_text, "model_id": MODEL_TTS,
+            "voice_settings": {"stability": 0.0, "similarity_boost": 0.6, "use_speaker_boost": True}}
+    return _post("/v1/text-to-speech/" + vid + "?output_format=mp3_44100_128", body)
+
+
 def tts_pcm24k(text, voice_id=None):
     """Same shape main.synthesize() returns: s16le / 24 kHz / mono."""
     mp3 = tts_mp3(text, voice_id)
