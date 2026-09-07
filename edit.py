@@ -126,8 +126,11 @@ def refine_words(ws, x, thr_db=-32.0, min_gap=0.14):
         ia, ib = isl[own[i]]
         if hi + 1 >= len(ws) or own[hi + 1] != own[i]:
             b = max(b, ib)
-        if len(run) == 1:
-            run[0].t1 = max(run[0].t1, min(b, run[0].t0 + 0.6))
+        if len(run) == 1 or b - a < 0.12:
+            for v in run:
+                v.t1 = max(v.t1, v.t0 + 0.05)
+            if len(run) == 1:
+                run[0].t1 = max(run[0].t1, min(b, run[0].t0 + 0.6))
         else:
             weights = [max(1, len(v.clean)) for v in run]; tot = float(sum(weights))
             vals = mix.valleys(x, a, b)
