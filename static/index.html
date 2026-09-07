@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TRUCK-A-FY</title>
+<meta name="description" content="Type anything. Get the monster-truck-rally-commercial treatment.">
+<meta name="theme-color" content="#0c0a0e">
+<style>
+  :root { --bg:#0c0a0e; --panel:#17131b; --line:#2a2230; --ink:#f4f0ea; --dim:#9a8f8a; --hot:#ff5a00; --sun:#ffb000; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:max(18px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom)); background:
+    radial-gradient(60% 40% at 50% 100%, rgba(255,90,0,.28), transparent 70%), var(--bg); }
+  .wrap { width:100%; max-width:560px; }
+  h1 { margin:18px 0 4px; text-align:center; font-family:Impact, "Arial Narrow Bold", "Helvetica Neue", sans-serif; font-weight:900; font-size:clamp(44px, 12vw, 72px); letter-spacing:.5px; line-height:1;
+       background:linear-gradient(#ffec5a, #ff5c00); -webkit-background-clip:text; background-clip:text; color:transparent; transform:skewX(-8deg); text-shadow:none; filter:drop-shadow(0 4px 0 #000); }
+  .tag { text-align:center; color:var(--sun); font-weight:800; letter-spacing:.14em; font-size:13px; margin:0 0 22px; text-transform:uppercase; }
+  textarea { width:100%; min-height:120px; resize:vertical; background:var(--panel); color:var(--ink); border:2px solid var(--line); border-radius:14px; padding:16px; font-size:18px; line-height:1.35; outline:none; }
+  textarea:focus { border-color:var(--sun); }
+  .row { display:flex; justify-content:space-between; align-items:center; margin:8px 2px 14px; color:var(--dim); font-size:13px; }
+  select { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:13px; }
+  button.go { width:100%; padding:18px; border:0; border-radius:16px; font-size:22px; font-weight:900; letter-spacing:.04em; color:#1a0d00; cursor:pointer;
+    background:linear-gradient(#ffd23f, #ff5a00); box-shadow:0 6px 0 #7a2a00, 0 14px 30px rgba(255,90,0,.35); text-transform:uppercase; }
+  button.go:active { transform:translateY(3px); box-shadow:0 3px 0 #7a2a00; }
+  button.go:disabled { opacity:.6; cursor:wait; transform:none; }
+  .status { min-height:24px; text-align:center; color:var(--dim); margin:14px 0 6px; font-size:15px; }
+  .status.err { color:#ff7a7a; }
+  .out { display:none; margin-top:14px; background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:14px; }
+  .out.show { display:block; }
+  video { width:100%; border-radius:12px; background:#000; display:block; }
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+  .actions button, .actions a { padding:14px; border-radius:12px; border:1px solid var(--line); background:#221b28; color:var(--ink); font-weight:800; font-size:16px; text-align:center; text-decoration:none; cursor:pointer; }
+  .actions .share { background:linear-gradient(#ffd23f, #ff5a00); color:#1a0d00; border:0; }
+  .foot { margin-top:auto; padding-top:26px; color:#5d5459; font-size:12px; text-align:center; }
+  @keyframes rev { 0%{transform:scaleX(.2)} 50%{transform:scaleX(1)} 100%{transform:scaleX(.2)} }
+  .bar { height:6px; border-radius:3px; background:linear-gradient(90deg, var(--sun), var(--hot)); margin:10px auto 0; width:60%; transform-origin:center; animation:rev 1s ease-in-out infinite; display:none; }
+  .bar.on { display:block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TRUCK-A-FY</h1>
+  <p class="tag">Sunday! Sunday! Sunday!</p>
+
+  <textarea id="text" maxlength="200" placeholder="Type anything. A text to your wife. A grocery list. A reminder to floss." autocomplete="off"></textarea>
+  <div class="row">
+    <span id="count">0 / 200</span>
+    <label>Intro
+      <select id="intro">
+        <option value="auto">Surprise me</option>
+        <option value="first">My first word ×3</option>
+        <option value="arena">Arena classic</option>
+        <option value="none">None</option>
+      </select>
+    </label>
+  </div>
+  <button class="go" id="go">Truck-a-fy it</button>
+  <div class="bar" id="bar"></div>
+  <div class="status" id="status"></div>
+
+  <div class="out" id="out">
+    <video id="video" controls playsinline preload="metadata"></video>
+    <div class="actions">
+      <button class="share" id="share">Share</button>
+      <a id="download" download="truckafy.mp4">Save video</a>
+      <button id="again">Run it again</button>
+      <a id="mp3" download="truckafy.mp3">Audio only</a>
+    </div>
+  </div>
+
+  <div class="foot">One announcer. Zero restraint. Your words, read exactly as typed.</div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const text = $('text'), count = $('count'), go = $('go'), bar = $('bar'), status = $('status');
+  const out = $('out'), video = $('video'), share = $('share'), dl = $('download'), again = $('again'), mp3 = $('mp3');
+  let blob = null, url = null, lastText = '', lastIntro = 'auto';
+  const lines = ['Warming up the announcer…', 'Revving the engines…', 'Lighting the pyro…', 'Screaming into the microphone…', 'Adding the tire screech…'];
+
+  text.addEventListener('input', () => { count.textContent = `${text.value.length} / 200`; });
+  try { const saved = localStorage.getItem('truckafy.last'); if (saved) { text.value = saved; count.textContent = `${saved.length} / 200`; } } catch (e) {}
+
+  async function run(reroll) {
+    const t = text.value.trim();
+    if (!t) { status.className = 'status err'; status.textContent = 'Type something first.'; return; }
+    try { localStorage.setItem('truckafy.last', t); } catch (e) {}
+    lastText = t; lastIntro = $('intro').value;
+    go.disabled = true; bar.classList.add('on'); out.classList.remove('show'); status.className = 'status';
+    let i = 0; status.textContent = lines[0];
+    const tick = setInterval(() => { i = (i + 1) % lines.length; status.textContent = lines[i]; }, 2200);
+    try {
+      const body = { text: t, intro: lastIntro, format: 'mp4' };
+      if (reroll) body.seed = Math.floor(Math.random() * 1e9);
+      const r = await fetch('/truckafy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) { let msg = 'Something broke.'; try { msg = (await r.json()).error || msg; } catch (e) {} throw new Error(msg); }
+      blob = await r.blob();
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(blob);
+      video.src = url; dl.href = url;
+      mp3.href = '/truckafy?text=' + encodeURIComponent(t) + '&intro=' + lastIntro;
+      out.classList.add('show'); status.textContent = '';
+      try { await video.play(); } catch (e) {}
+      out.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (e) {
+      status.className = 'status err'; status.textContent = e.message || 'Something broke.';
+    } finally {
+      clearInterval(tick); go.disabled = false; bar.classList.remove('on');
+    }
+  }
+  go.addEventListener('click', () => run(false));
+  again.addEventListener('click', () => run(true));
+  text.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run(false); });
+
+  share.addEventListener('click', async () => {
+    if (!blob) return;
+    const file = new File([blob], 'truckafy.mp4', { type: 'video/mp4' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'TRUCK-A-FY', text: lastText }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    dl.click();
+  });
+})();
+</script>
+</body>
+</html>

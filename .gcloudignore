@@ -3,6 +3,7 @@
 listen/
 takes/
 out*/
+takes2.py
 *.mp3
 *.pcm
 *.b64
