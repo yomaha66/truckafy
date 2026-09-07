@@ -20,6 +20,7 @@ WAVE_H = 252  # 21 blocks of 12 px
 WAVE_PX = 12  # size of one waveform block — the meter is drawn tiny and blown up with nearest-neighbour
 WAVE_Y = H - WAVE_H - 90
 LOGO_SCALE = 10  # 95 px grid -> 950 px wide
+STYLE = "fire"  # main.py sets this from LOGO_STYLE; colours the wordmark, glow, text shadows and the meter
 
 
 def _font(path, size):
@@ -65,16 +66,19 @@ def _pixel_paragraph(text, max_w, max_h, sizes=(56, 48, 40, 32, 24), leading=1.4
     return font, lines, line_h
 
 
-def make_card(message, out_png, intro_line=None):
+def make_card(message, out_png, intro_line=None, style=None):
+    style = style or STYLE
+    ui = logo.STYLES[style]["ui"]
+    gr, gg, gb = ui["glow"]
     img = Image.new("RGB", (W, H), (12, 10, 14))
     d = ImageDraw.Draw(img)
-    # arena glow: warm at the bottom, cool at the top
+    # arena glow at the bottom, in the palette's colour
     glow = Image.new("RGB", (W, H), (0, 0, 0))
     gd = ImageDraw.Draw(glow)
     for r in range(900, 0, -12):
         t = r / 900
         gd.ellipse([W // 2 - r, H - 120 - r * 0.55, W // 2 + r, H - 120 + r * 0.55],
-                   fill=(int(110 * (1 - t)), int(28 * (1 - t)), 0))
+                   fill=(int(gr * 0.43 * (1 - t)), int(gg * 0.43 * (1 - t)), int(gb * 0.43 * (1 - t))))
     glow = glow.filter(ImageFilter.GaussianBlur(40))
     img = Image.blend(img, Image.composite(glow, img, glow.convert("L").point(lambda v: min(255, v * 3))), 0.85)
     d = ImageDraw.Draw(img)
@@ -85,7 +89,7 @@ def make_card(message, out_png, intro_line=None):
     for y in range(0, H, 4):
         d.line([(0, y), (W, y)], fill=(8, 6, 10), width=1)
     # 8-bit wordmark (pixel art, nearest-neighbour — every block stays a hard square)
-    mark = logo.render(LOGO_SCALE)
+    mark = logo.render(LOGO_SCALE, style)
     img.paste(mark, ((W - mark.size[0]) // 2, 44), mark)
     d = ImageDraw.Draw(img)
     # intro line in the arcade font, hard drop shadow
@@ -93,28 +97,29 @@ def make_card(message, out_png, intro_line=None):
     sub_font, sub_lines = _pixel_lines(sub_text, W - 120)
     y = 44 + mark.size[1] + 34
     for l in sub_lines:
-        _pixel_text(d, (W // 2, y), l, sub_font, fill=(255, 207, 30))
+        _pixel_text(d, (W // 2, y), l, sub_font, fill=logo._hex(ui["sun"]), shadow=logo._hex(ui["rust"]))
         y += int(sub_font.size * 1.5)
     top = y + 16
     # the message, white on a hard rust shadow like an NES text box
     body_font, lines, line_h = _pixel_paragraph(message.upper(), W - 120, WAVE_Y - 30 - top)
     y = top + ((WAVE_Y - 30) - top - len(lines) * line_h) // 2
     for l in lines:
-        _pixel_text(d, (W // 2, y), l, body_font, fill=(255, 255, 255), shadow=(120, 30, 0))
+        _pixel_text(d, (W // 2, y), l, body_font, fill=(255, 255, 255), shadow=ui["shadow"])
         y += line_h
     # waveform baseline + footer
-    d.line([(60, WAVE_Y + WAVE_H // 2), (W - 60, WAVE_Y + WAVE_H // 2)], fill=(70, 40, 20), width=2)
+    d.line([(60, WAVE_Y + WAVE_H // 2), (W - 60, WAVE_Y + WAVE_H // 2)], fill=tuple(int(v * 0.3) for v in logo._hex(ui["hot"])), width=2)
     _pixel_text(d, (W // 2, H - 58), "TYPE ANYTHING. GET THE TREATMENT.", _font(FONT_PIXEL, 16),
                 fill=(160, 140, 130), shadow=(0, 0, 0))
     img.save(out_png, "PNG")
     return out_png
 
 
-def make_mp4(mp3_path, message, out_mp4, intro_line=None, tmpdir=None):
+def make_mp4(mp3_path, message, out_mp4, intro_line=None, tmpdir=None, style=None):
+    style = style or STYLE
     tmpdir = tmpdir or os.path.dirname(os.path.abspath(out_mp4))
-    card = make_card(message, os.path.join(tmpdir, "card.png"), intro_line)
+    card = make_card(message, os.path.join(tmpdir, "card.png"), intro_line, style)
     fc = (f"[1:a]aformat=channel_layouts=mono,showwaves=s={W // WAVE_PX}x{WAVE_H // WAVE_PX}:mode=cline:rate=30:"
-          f"colors=#ffb000|#ff5a00:scale=sqrt,scale={W}:{WAVE_H}:flags=neighbor,format=rgba[w];"
+          f"colors={logo.STYLES[style]['ui']['wave']}:scale=sqrt,scale={W}:{WAVE_H}:flags=neighbor,format=rgba[w];"
           f"[0:v][w]overlay=0:{WAVE_Y}:shortest=1,format=yuv420p[v]")
     cmd = ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-framerate", "30", "-i", card, "-i", mp3_path,
            "-filter_complex", fc, "-map", "[v]", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",

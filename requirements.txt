@@ -3,3 +3,4 @@ gunicorn==23.0.0
 numpy>=1.26,<3
 scipy>=1.11,<2
 Pillow>=10,<12
+librosa>=0.10,<0.12

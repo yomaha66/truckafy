@@ -113,14 +113,27 @@ ROWS = 11
 STYLES = {
     # sun-on-chrome fire: near-white shine, yellow, orange, red
     "fire": dict(bands=[(0, 1, "#fff6b0"), (2, 4, "#ffcf1e"), (5, 7, "#ff7a00"), (8, 10, "#d61f00")],
-                 extrude="#5a1200", outline="#0a0400", depth=3),
+                 extrude="#5a1200", outline="#0a0400", depth=3,
+                 ui=dict(sun="#ffcf1e", hot="#ff7a00", rust="#5a1200", glow=(255, 90, 0), ink="#1a0d00",
+                         wave="#ffb000|#ff5a00", shadow=(120, 30, 0))),
     # 80s box-art chrome: white, sky, blue, navy with a warm horizon line
     "chrome": dict(bands=[(0, 1, "#ffffff"), (2, 4, "#a8e0ff"), (5, 5, "#ffd23f"), (6, 7, "#2a7cff"), (8, 10, "#0b2e8a")],
-                   extrude="#06153f", outline="#000000", depth=3),
+                   extrude="#06153f", outline="#000000", depth=3,
+                   ui=dict(sun="#a8e0ff", hot="#2a7cff", rust="#06153f", glow=(40, 110, 255), ink="#04102e",
+                           wave="#a8e0ff|#2a7cff", shadow=(6, 30, 110))),
     # ice: white to cyan to purple
     "ice": dict(bands=[(0, 1, "#ffffff"), (2, 4, "#b8fff4"), (5, 7, "#20c8f0"), (8, 10, "#6a2cff")],
-                extrude="#24104a", outline="#000000", depth=3),
+                extrude="#24104a", outline="#000000", depth=3,
+                ui=dict(sun="#b8fff4", hot="#20c8f0", rust="#24104a", glow=(110, 40, 255), ink="#120a2e",
+                        wave="#b8fff4|#20c8f0", shadow=(50, 20, 110))),
 }
+
+
+def palette_css(style="fire"):
+    """The CSS custom properties the web page derives its accent colours from."""
+    u = STYLES[style]["ui"]
+    g = ",".join(str(v) for v in u["glow"])
+    return (f"--sun:{u['sun']}; --hot:{u['hot']}; --rust:{u['rust']}; --glow:{g}; --btn-ink:{u['ink']};")
 
 
 def _hex(c):

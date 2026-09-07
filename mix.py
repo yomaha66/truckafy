@@ -12,6 +12,7 @@ import numpy as np
 from scipy.signal import fftconvolve, butter, sosfilt
 
 SR = 44100
+PRE = 0.45  # engine lead-in before the first word (s)
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 RNG = np.random.default_rng(7)
 
@@ -334,9 +335,10 @@ def glitch_finale(x, segs, tapestop=True, stutter_on=True, rise=False, rise_semi
 
 
 # ----------------------------------------------------------------------------- voice fx
-def voice_fx(x, pitch_st=-2.0, sub_db=-10.0, drive_db=6.0):
+def voice_fx(x, pitch_st=-2.0, sub_db=-10.0, drive_db=6.0, formant=False):
     ratio = 2 ** (pitch_st / 12)
-    main = ff(x, f"rubberband=pitch={ratio:.5f}:tempo=1.0:pitchq=quality") if abs(pitch_st) > 0.05 else x
+    fm = ":formant=preserved" if formant else ""
+    main = ff(x, f"rubberband=pitch={ratio:.5f}:tempo=1.0:pitchq=quality{fm}") if abs(pitch_st) > 0.05 else x
     sub = ff(x, "rubberband=pitch=0.5:tempo=1.0,lowpass=f=200:p=2") * db(sub_db)
     n = min(len(main), len(sub)); v = main[:n] + sub[:n]
     chain = ("highpass=f=70,"
@@ -470,7 +472,87 @@ def schedule_hits(segs, total_s, seed=11, siren="siren_wail.wav"):
 
 
 def hit_sound(name):
-    return rev_variants()[name] if (name.startswith("rev_") and not name.endswith(".wav")) else asset(name)
+    if name.startswith("rev_") and not name.endswith(".wav"):
+        return rev_variants()[name]
+    a = asset(name)
+    if name.startswith("lick_"):
+        a = fade(a[:int(SR * 2.4)], 8, 450)   # a lick is a phrase, not a bed: cap it and let it fall away
+    return a
+
+
+def _master(v, voice_end_rel, hits, out_path, engine_db=-17.0, riff_db=-16.0, crowd_db=-26.0, lufs=-9.0,
+            riff="riff_speedy_a.wav", riff_duck=6.0):
+    """Beds + hits + glue + two-pass loudnorm. v is the processed voice (starts at PRE in the mix),
+    voice_end_rel is where the last word ends relative to the voice, hits are in mix time."""
+    v = v * db(-10.0 - rms_db(v[:int(voice_end_rel * SR)] if voice_end_rel > 0.5 else v))  # -10 dBFS RMS pre-master
+    voice_end = PRE + voice_end_rel
+    total = int(SR * (voice_end + 2.0))
+    mix = np.zeros((2, total))
+    p0 = int(SR * PRE); n = min(len(v), total - p0); mix[:, p0:p0 + n] += v[:n]
+    env = env_follow(mix[0]); env = np.clip(env / (np.percentile(env, 97) + 1e-9), 0, 1)
+    fade_start = voice_end + 0.5
+    beds = np.zeros((2, total))
+    for name, level, depth, pan in (("engine_bed.wav", engine_db, 5.0, 0.0), (riff, riff_db, riff_duck, -0.35),
+                                    ("crowd_bed.wav", crowd_db, 4.0, 0.35)):
+        b = bed(name, total, level, fade_in=0.12, fade_out=0.01)
+        i = int(SR * fade_start); j = min(total, i + int(SR * 1.3))
+        b[i:j] *= np.linspace(1, 0, j - i) ** 2; b[j:] = 0
+        b = duck(b, env, depth); th = (pan + 1) * np.pi / 4
+        beds[0] += b * np.cos(th) * 1.414; beds[1] += b * np.sin(th) * 1.414
+    for name, at, g, pan in hits:
+        if name == "rev_extreme_a.wav":  # beds dip 7 dB under the punctuation rev so it stands alone
+            i = int(SR * at); j = min(total, i + int(SR * 1.4)); n = j - i
+            if n > SR * 0.6:
+                dip = np.ones(n); a_ = int(SR * 0.02); r_ = int(SR * 0.5)
+                dip[:a_] = np.linspace(1, db(-7), a_); dip[a_:n - r_] = db(-7); dip[n - r_:] = np.linspace(db(-7), 1, r_)
+                beds[:, i:j] *= dip
+    mix += beds
+    for name, at, g, pan in hits:
+        place(mix, hit_sound(name), at, g, pan)
+    mix = np.tanh(mix * 1.15) / np.tanh(1.15)  # glue / soft clip
+    tmp = out_path + ".pre.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "f32le", "-ac", "2", "-ar", str(SR), "-i", "pipe:0", tmp],
+                   input=mix.T.astype(np.float32).tobytes(), check=True)
+    # two-pass loudnorm so the integrated loudness actually lands on target
+    p1 = subprocess.run(["ffmpeg", "-v", "info", "-i", tmp, "-af", f"loudnorm=I={lufs}:TP=-1.0:LRA=9:print_format=json",
+                         "-f", "null", "-"], capture_output=True, text=True)
+    m = json.loads(p1.stderr[p1.stderr.rfind("{"):p1.stderr.rfind("}") + 1])
+    ln = (f"loudnorm=I={lufs}:TP=-1.0:LRA=9:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
+          f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", tmp, "-af", ln + ",alimiter=limit=0.94:attack=2:release=40",
+                    "-ar", str(SR), "-c:a", "libmp3lame", "-b:a", "192k", out_path], check=True)
+    os.remove(tmp)
+    return total
+
+
+def render_words(take_path, out_path, alignment, intro_line="", seed=3, engine_db=-17.0, riff_db=-13.0, crowd_db=-26.0,
+                 lufs=-9.0, wet_db=-13.0, slap_db=-9.0, riff="riff_speedy_a.wav", siren="siren_wail.wav", licks=True,
+                 normalise=True, riff_duck=4.5):
+    """The word-accurate pipeline (see edit.py). Falls back to render() when there is no alignment."""
+    import edit
+    raw = load(take_path)
+    raw *= db(-3.0 - peak_db(raw))
+    ws = edit.refine_words(edit.words_from_alignment(alignment, intro_line), raw)
+    if len(ws) < 2:
+        return render(take_path, out_path, seed=seed, rise=True, rise_semis=10.0, slap_word=True, glitch_mid=True,
+                      tapestop=True, punct=True, riff=riff, riff_db=riff_db, engine_db=engine_db, crowd_db=crowd_db, lufs=lufs)
+    norm = edit.normalise_plan(ws, raw) if normalise else dict(rate=0, tempo=1.0, f0=0, pitch=-2.0)
+    fx = edit.plan_effects(ws, seed=seed)
+    v, intro_span = edit.assemble(raw, ws, fx, tempo=norm["tempo"], seed=seed)
+    if intro_span:
+        v = word_slap(v, int(intro_span[0] * SR), int(intro_span[1] * SR))
+    pitch = norm["pitch"]
+    v = voice_fx(v, pitch_st=pitch, sub_db=(-10.0 if pitch <= 0.5 else -15.0), formant=abs(pitch) > 2.2)
+    v = slapback(v, level_db=slap_db)
+    v = reverb(v, wet_db=wet_db)
+    hits = edit.schedule_hits(ws, PRE, seed=seed + 11, siren=siren, licks=licks)
+    total = _master(v, ws[-1].o1, hits, out_path, engine_db=engine_db, riff_db=riff_db, crowd_db=crowd_db, lufs=lufs,
+                    riff=riff, riff_duck=riff_duck)
+    info = {"take": take_path, "out": out_path, "voice_s": round(ws[-1].o1, 2), "total_s": round(total / SR, 2),
+            "norm": norm, "fx": {ws[i].text: f for i, f in fx.items()},
+            "words": [(w.text, round(w.o0, 2), round(w.o1, 2)) for w in ws],
+            "hits": [(h[0], round(h[1], 2), h[2], str(h[3])) for h in hits]}
+    return info
 
 
 # ----------------------------------------------------------------------------- main
@@ -496,46 +578,11 @@ def render(take_path, out_path, cadence=False, stutter_on=False, slash=False, ta
     v = voice_fx(v, pitch_st=pitch, sub_db=sub_db)
     v = slapback(v, level_db=slap_db)
     v = reverb(v, wet_db=wet_db)
-    v *= db(-10.0 - rms_db(v[:int(segs[-1][1] * SR)] if segs else v))  # voice sits at -10 dBFS RMS pre-master
-    pre = 0.45                                        # engine lead-in before the first word
-    voice_end = pre + (segs[-1][1] if segs else len(v) / SR)
-    total = int(SR * (voice_end + 2.0))
-    mix = np.zeros((2, total))
-    p0 = int(SR * pre); n = min(len(v), total - p0); mix[:, p0:p0 + n] += v[:n]
-    env = env_follow(mix[0]); env = np.clip(env / (np.percentile(env, 97) + 1e-9), 0, 1)
-    fade_start = voice_end + 0.5
-    beds = np.zeros((2, total))
-    for name, level, depth, pan in (("engine_bed.wav", engine_db, 5.0, 0.0), (riff, riff_db, 6.0, -0.35),
-                                    ("crowd_bed.wav", crowd_db, 4.0, 0.35)):
-        b = bed(name, total, level, fade_in=0.12, fade_out=0.01)
-        i = int(SR * fade_start); j = min(total, i + int(SR * 1.3))
-        b[i:j] *= np.linspace(1, 0, j - i) ** 2; b[j:] = 0
-        b = duck(b, env, depth); th = (pan + 1) * np.pi / 4
-        beds[0] += b * np.cos(th) * 1.414; beds[1] += b * np.sin(th) * 1.414
-    segs_p = [(a + pre, b_ + pre) for a, b_ in segs]
-    hits = schedule_hits(segs_p, voice_end, seed=seed + 11, siren=siren)
-    for name, at, g, pan in hits:
-        if name == "rev_extreme_a.wav":  # beds dip 7 dB under the punctuation rev so it stands alone
-            i = int(SR * at); j = min(total, i + int(SR * 1.4)); n = j - i
-            dip = np.ones(n); a_ = int(SR * 0.02); r_ = int(SR * 0.5)
-            dip[:a_] = np.linspace(1, db(-7), a_); dip[a_:n - r_] = db(-7); dip[n - r_:] = np.linspace(db(-7), 1, r_)
-            beds[:, i:j] *= dip
-    mix += beds
-    for name, at, g, pan in hits:
-        place(mix, hit_sound(name), at, g, pan)
-    mix = np.tanh(mix * 1.15) / np.tanh(1.15)  # glue / soft clip
-    tmp = out_path + ".pre.wav"
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "f32le", "-ac", "2", "-ar", str(SR), "-i", "pipe:0", tmp],
-                   input=mix.T.astype(np.float32).tobytes(), check=True)
-    # two-pass loudnorm so the integrated loudness actually lands on target
-    p1 = subprocess.run(["ffmpeg", "-v", "info", "-i", tmp, "-af", f"loudnorm=I={lufs}:TP=-1.0:LRA=9:print_format=json",
-                         "-f", "null", "-"], capture_output=True, text=True)
-    m = json.loads(p1.stderr[p1.stderr.rfind("{"):p1.stderr.rfind("}") + 1])
-    ln = (f"loudnorm=I={lufs}:TP=-1.0:LRA=9:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
-          f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", tmp, "-af", ln + ",alimiter=limit=0.94:attack=2:release=40",
-                    "-ar", str(SR), "-c:a", "libmp3lame", "-b:a", "192k", out_path], check=True)
-    os.remove(tmp)
+    voice_end_rel = segs[-1][1] if segs else len(v) / SR
+    segs_p = [(a + PRE, b_ + PRE) for a, b_ in segs]
+    hits = schedule_hits(segs_p, PRE + voice_end_rel, seed=seed + 11, siren=siren)
+    total = _master(v, voice_end_rel, hits, out_path, engine_db=engine_db, riff_db=riff_db, crowd_db=crowd_db,
+                    lufs=lufs, riff=riff)
     info = {"take": take_path, "out": out_path, "voice_s": round(len(v) / SR, 2), "total_s": round(total / SR, 2),
             "segments": [(round(a, 2), round(b, 2)) for a, b in segs_p],
             "hits": [(h[0], round(h[1], 2), h[2], str(h[3])) for h in hits],

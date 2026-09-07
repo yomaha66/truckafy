@@ -13,6 +13,7 @@ import collections
 import logging
 import os
 import random
+import re
 import tempfile
 import threading
 import time
@@ -20,6 +21,7 @@ import time
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 import eleven
+import logo
 import mix
 import script
 import video
@@ -32,6 +34,10 @@ APP_SECRET = os.environ.get("APP_SECRET", "")
 MAX_CHARS = int(os.environ.get("MAX_CHARS", "200"))
 PER_MIN = int(os.environ.get("RATE_PER_MIN", "5"))
 PER_DAY = int(os.environ.get("RATE_PER_DAY", "40"))
+STYLE = os.environ.get("LOGO_STYLE", "fire")  # fire | chrome | ice — colours the wordmark, the page and the card
+if STYLE not in logo.STYLES:
+    STYLE = "fire"
+video.STYLE = STYLE
 
 # ---- per-IP limiter (in-memory, per instance; enough to stop a loop or a bored script kid) ----
 _hits = collections.defaultdict(list)
@@ -58,20 +64,29 @@ RECIPE = dict(rise=True, rise_semis=10.0, slap_word=True, glitch_mid=True, tapes
               pitch=-2.0, riff="riff_speedy_a.wav", riff_db=-16.0, engine_db=-17.0, crowd_db=-26.0, lufs=-9.0)
 
 
+_INDEX = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html"), encoding="utf-8").read()
+_INDEX = re.sub(r"/\*PALETTE\*/.*?/\*/PALETTE\*/", logo.palette_css(STYLE), _INDEX, flags=re.S)
+
+
 @app.get("/")
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    return Response(_INDEX, mimetype="text/html")
+
+
+@app.get("/logo.svg")
+def logo_svg():
+    return Response(logo.svg(STYLE), mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/fonts/<path:name>")
 def fonts(name):
-    return send_from_directory(os.path.join(app.root_path, "fonts"), name, max_age=31536000)
+    return send_from_directory(os.path.join(app.root_path, "fonts"), name, max_age=31536000, mimetype="font/ttf")
 
 
 @app.get("/health")
 def health():
     return jsonify({"ok": True, "service": "truckafy-engine", "voice": eleven.VOICE_ID or None,
-                    "intros": script.INTROS, "max_chars": MAX_CHARS})
+                    "intros": script.INTROS, "max_chars": MAX_CHARS, "style": STYLE})
 
 
 def _render(user_text, intro, seed, fmt="mp3"):

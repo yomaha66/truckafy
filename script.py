@@ -45,12 +45,12 @@ def sentences(text):
 
 def accent_last_word(sentence):
     """Uppercase + stretch the final word; force an exclamation mark (punctuation, not words)."""
-    m = re.match(r"^(.*?)([A-Za-z][A-Za-z'\-]*)([^A-Za-z]*)$", sentence, flags=re.S)
+    m = re.match(r"^(.*?)([A-Za-z0-9][A-Za-z0-9'\-]*)([^A-Za-z0-9]*)$", sentence, flags=re.S)
     if not m:
         return sentence
     head, last, tail = m.groups()
     last = last.upper()
-    if len(last) > 2:
+    if len(last) > 2 and not last.isdigit():
         last = stretch(last)
     tail = re.sub(r"[.!?]+$", "", tail)  # drop the sentence-final mark; we end on "!"
     return f"{head}{last}{tail}!"
