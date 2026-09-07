@@ -20,7 +20,10 @@ text ──► script.py ──► ElevenLabs v3 (Rex Thunder) ──► mix.py 
   riff kept low, engine and crowd beds ducked under the voice, a doppler siren under the intro, an octave riser and
   slapback on the third intro word, the first phrase doubled with a stutter, one extreme rev punctuating the middle
   line, a tape-stop on the last word, and a dragster launch with screaming tires on the way out. Mastered to −9 LUFS.
-* `video.py` draws a 1080×1080 card (message, intro line, wordmark) and lets ffmpeg's `showwaves` animate over it.
+* `logo.py` is the wordmark: hand-drawn 8×11 pixel glyphs with NES-style banded shading, outline and a 45° extrusion,
+  rendered as crisp PNG for the card and as SVG for the page.
+* `video.py` draws a 1080×1080 8-bit title-screen card (pixel wordmark, Press Start 2P text, scanlines) and lets ffmpeg's
+  `showwaves` animate a blocky meter over it.
 
 ## API
 
@@ -56,11 +59,12 @@ Env vars: `ELEVENLABS_API_KEY`, `ELEVEN_VOICE_ID`, optional `MAX_CHARS`, `RATE_P
 | `script.py` | text → performance script (intros, accents, tags) |
 | `eleven.py` | ElevenLabs client (TTS with timestamps, sound generation, voice library) |
 | `mix.py` | the post-production chain |
+| `logo.py` | the pixel-art wordmark (PNG + SVG) |
 | `video.py` | share card + waveform → MP4 |
 | `static/index.html` | the one-screen web app |
 | `assets/` | engine/crowd beds, riffs, sirens, revs, pyro (made with `gen_sfx*.py`) |
-| `fonts/` | Bangers, Anton, Bebas Neue (OFL) |
+| `fonts/` | Press Start 2P (OFL) |
 | `takes/` | raw ElevenLabs takes for offline recipe work + `selftest.py` |
 | `takes.py`, `takes2.py`, `find_voices.py`, `gen_sfx.py`, `gen_sfx2.py` | dev tools that call ElevenLabs |
 
-Fonts are under the SIL Open Font License (`fonts/OFL.txt`).
+The font is under the SIL Open Font License (`fonts/OFL-PressStart2P.txt`).

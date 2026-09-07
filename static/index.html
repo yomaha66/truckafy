@@ -7,41 +7,44 @@
 <meta name="description" content="Type anything. Get the monster-truck-rally-commercial treatment.">
 <meta name="theme-color" content="#0c0a0e">
 <style>
-  :root { --bg:#0c0a0e; --panel:#17131b; --line:#2a2230; --ink:#f4f0ea; --dim:#9a8f8a; --hot:#ff5a00; --sun:#ffb000; }
+  @font-face { font-family:"Press Start 2P"; src:url(/fonts/PressStart2P-Regular.ttf) format("truetype"); font-display:swap; }
+  :root { --bg:#0c0a0e; --panel:#17131b; --line:#3a2a40; --ink:#f4f0ea; --dim:#9a8f8a; --hot:#ff5a00; --sun:#ffcf1e; --rust:#5a1200;
+          --px:"Press Start 2P", "Courier New", monospace; }
   * { box-sizing:border-box; }
   html, body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  body { min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:max(18px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom)); background:
-    radial-gradient(60% 40% at 50% 100%, rgba(255,90,0,.28), transparent 70%), var(--bg); }
+  body { min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:max(18px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 4px),
+                radial-gradient(60% 40% at 50% 100%, rgba(255,90,0,.28), transparent 70%), var(--bg); }
   .wrap { width:100%; max-width:560px; }
-  h1 { margin:18px 0 4px; text-align:center; font-family:Impact, "Arial Narrow Bold", "Helvetica Neue", sans-serif; font-weight:900; font-size:clamp(44px, 12vw, 72px); letter-spacing:.5px; line-height:1;
-       background:linear-gradient(#ffec5a, #ff5c00); -webkit-background-clip:text; background-clip:text; color:transparent; transform:skewX(-8deg); text-shadow:none; filter:drop-shadow(0 4px 0 #000); }
-  .tag { text-align:center; color:var(--sun); font-weight:800; letter-spacing:.14em; font-size:13px; margin:0 0 22px; text-transform:uppercase; }
-  textarea { width:100%; min-height:120px; resize:vertical; background:var(--panel); color:var(--ink); border:2px solid var(--line); border-radius:14px; padding:16px; font-size:18px; line-height:1.35; outline:none; }
+  .logo { display:block; width:100%; height:auto; margin:22px auto 14px; image-rendering:pixelated; }
+  .tag { text-align:center; color:var(--sun); font-family:var(--px); font-size:clamp(10px, 2.6vw, 13px); line-height:1.6; margin:0 0 26px; text-shadow:2px 2px 0 var(--rust); }
+  textarea { width:100%; min-height:120px; resize:vertical; background:var(--panel); color:var(--ink); border:3px solid var(--line); border-radius:0; padding:16px; font-size:18px; line-height:1.35; outline:none; box-shadow:4px 4px 0 #000; }
   textarea:focus { border-color:var(--sun); }
-  .row { display:flex; justify-content:space-between; align-items:center; margin:8px 2px 14px; color:var(--dim); font-size:13px; }
-  select { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:13px; }
-  button.go { width:100%; padding:18px; border:0; border-radius:16px; font-size:22px; font-weight:900; letter-spacing:.04em; color:#1a0d00; cursor:pointer;
-    background:linear-gradient(#ffd23f, #ff5a00); box-shadow:0 6px 0 #7a2a00, 0 14px 30px rgba(255,90,0,.35); text-transform:uppercase; }
-  button.go:active { transform:translateY(3px); box-shadow:0 3px 0 #7a2a00; }
+  .row { display:flex; justify-content:space-between; align-items:center; margin:12px 2px 16px; color:var(--dim); font-family:var(--px); font-size:9px; }
+  select { background:var(--panel); color:var(--ink); border:2px solid var(--line); border-radius:0; padding:6px 8px; font-family:var(--px); font-size:9px; }
+  button.go { width:100%; padding:20px 12px; border:3px solid #000; border-radius:0; font-family:var(--px); font-size:clamp(14px, 3.8vw, 18px); color:#1a0d00; cursor:pointer;
+    background:linear-gradient(#ffcf1e 0 50%, #ff7a00 50% 100%); box-shadow:6px 6px 0 var(--rust); text-transform:uppercase; text-shadow:2px 2px 0 rgba(255,255,255,.35); }
+  button.go:active { transform:translate(3px, 3px); box-shadow:3px 3px 0 var(--rust); }
   button.go:disabled { opacity:.6; cursor:wait; transform:none; }
-  .status { min-height:24px; text-align:center; color:var(--dim); margin:14px 0 6px; font-size:15px; }
+  .status { min-height:24px; text-align:center; color:var(--dim); margin:18px 0 6px; font-size:15px; }
   .status.err { color:#ff7a7a; }
-  .out { display:none; margin-top:14px; background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:14px; }
+  .out { display:none; margin-top:16px; background:var(--panel); border:3px solid var(--line); border-radius:0; padding:12px; box-shadow:4px 4px 0 #000; }
   .out.show { display:block; }
-  video { width:100%; border-radius:12px; background:#000; display:block; }
+  video { width:100%; border-radius:0; background:#000; display:block; border:2px solid #000; }
   .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
-  .actions button, .actions a { padding:14px; border-radius:12px; border:1px solid var(--line); background:#221b28; color:var(--ink); font-weight:800; font-size:16px; text-align:center; text-decoration:none; cursor:pointer; }
-  .actions .share { background:linear-gradient(#ffd23f, #ff5a00); color:#1a0d00; border:0; }
-  .foot { margin-top:auto; padding-top:26px; color:#5d5459; font-size:12px; text-align:center; }
+  .actions button, .actions a { padding:16px 8px; border-radius:0; border:2px solid var(--line); background:#221b28; color:var(--ink); font-family:var(--px); font-size:10px; line-height:1.4; text-align:center; text-decoration:none; cursor:pointer; text-transform:uppercase; box-shadow:3px 3px 0 #000; }
+  .actions button:active, .actions a:active { transform:translate(2px, 2px); box-shadow:1px 1px 0 #000; }
+  .actions .share { background:linear-gradient(#ffcf1e 0 50%, #ff7a00 50% 100%); color:#1a0d00; border-color:#000; }
+  .foot { margin-top:auto; padding-top:28px; color:#5d5459; font-family:var(--px); font-size:8px; line-height:1.8; text-align:center; }
   @keyframes rev { 0%{transform:scaleX(.2)} 50%{transform:scaleX(1)} 100%{transform:scaleX(.2)} }
-  .bar { height:6px; border-radius:3px; background:linear-gradient(90deg, var(--sun), var(--hot)); margin:10px auto 0; width:60%; transform-origin:center; animation:rev 1s ease-in-out infinite; display:none; }
+  .bar { height:8px; background:repeating-linear-gradient(90deg, var(--sun) 0 8px, var(--hot) 8px 16px); margin:12px auto 0; width:60%; transform-origin:center; animation:rev 1s steps(6) infinite; display:none; border:2px solid #000; }
   .bar.on { display:block; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>TRUCK-A-FY</h1>
-  <p class="tag">Sunday! Sunday! Sunday!</p>
+  <img class="logo" src="/static/logo.svg" alt="TRUCK-A-FY" width="95" height="16">
+  <p class="tag">SUNDAY! SUNDAY! SUNDAY!</p>
 
   <textarea id="text" maxlength="200" placeholder="Type anything. A text to your wife. A grocery list. A reminder to floss." autocomplete="off"></textarea>
   <div class="row">
@@ -69,7 +72,7 @@
     </div>
   </div>
 
-  <div class="foot">One announcer. Zero restraint. Your words, read exactly as typed.</div>
+  <div class="foot">ONE ANNOUNCER. ZERO RESTRAINT.<br>YOUR WORDS, READ EXACTLY AS TYPED.</div>
 </div>
 
 <script>

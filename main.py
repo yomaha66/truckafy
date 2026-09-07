@@ -63,6 +63,11 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.get("/fonts/<path:name>")
+def fonts(name):
+    return send_from_directory(os.path.join(app.root_path, "fonts"), name, max_age=31536000)
+
+
 @app.get("/health")
 def health():
     return jsonify({"ok": True, "service": "truckafy-engine", "voice": eleven.VOICE_ID or None,

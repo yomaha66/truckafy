@@ -1,5 +1,6 @@
-"""Shareable MP4: a branded card (Pillow) with the user's message + an animated waveform (ffmpeg showwaves)
-married to the mastered audio. Square 1080x1080 by default — plays everywhere, posts everywhere.
+"""Shareable MP4: an 8-bit title-screen card (Pillow: pixel wordmark from logo.py + Press Start 2P text) with the
+user's message and an animated waveform (ffmpeg showwaves) married to the mastered audio. Square 1080x1080 —
+plays everywhere, posts everywhere.
 
     python3 video.py out.mp3 "hey julie can you grab dog food" out.mp4
 """
@@ -10,13 +11,15 @@ import textwrap
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+import logo
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-FONT_TITLE = os.path.join(HERE, "fonts", "Bangers-Regular.ttf")
-FONT_BODY = os.path.join(HERE, "fonts", "Anton-Regular.ttf")
-FONT_SMALL = os.path.join(HERE, "fonts", "BebasNeue-Regular.ttf")
+FONT_PIXEL = os.path.join(HERE, "fonts", "PressStart2P-Regular.ttf")
 W = H = 1080
-WAVE_H = 250
+WAVE_H = 252  # 21 blocks of 12 px
+WAVE_PX = 12  # size of one waveform block — the meter is drawn tiny and blown up with nearest-neighbour
 WAVE_Y = H - WAVE_H - 90
+LOGO_SCALE = 10  # 95 px grid -> 950 px wide
 
 
 def _font(path, size):
@@ -26,48 +29,40 @@ def _font(path, size):
         return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
 
 
-def _gradient_text(size, text, font, top=(255, 236, 90), bottom=(255, 92, 0), stroke=10):
-    """Text filled with a vertical gradient and a black outline, on a transparent layer."""
-    layer = Image.new("RGBA", size, (0, 0, 0, 0))
-    mask = Image.new("L", size, 0)
-    ImageDraw.Draw(mask).text((size[0] // 2, size[1] // 2), text, font=font, fill=255, anchor="mm")
-    grad = Image.new("RGBA", size, (0, 0, 0, 0))
-    gd = ImageDraw.Draw(grad)
-    for y in range(size[1]):
-        t = y / max(1, size[1] - 1)
-        c = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3)) + (255,)
-        gd.line([(0, y), (size[0], y)], fill=c)
-    outline = Image.new("RGBA", size, (0, 0, 0, 0))
-    ImageDraw.Draw(outline).text((size[0] // 2, size[1] // 2), text, font=font, fill=(0, 0, 0, 255),
-                                 anchor="mm", stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
-    layer.alpha_composite(outline)
-    layer.paste(grad, (0, 0), mask)
-    return layer
-
-
-def _skew(img, shear=-0.18):
-    w, h = img.size
-    pad = int(abs(shear) * h) + 2
-    canvas = Image.new("RGBA", (w + 2 * pad, h), (0, 0, 0, 0))
-    canvas.paste(img, (pad, 0))
-    return canvas.transform(canvas.size, Image.AFFINE, (1, shear, -shear * h / 2 if shear < 0 else 0, 0, 1, 0),
-                            resample=Image.BICUBIC)
-
-
-def _fit_lines(text, font_path, max_w, max_h, start=150, min_size=64):
-    """Largest font size whose wrapped text fits the box. Returns (font, lines)."""
-    size = start
-    while size >= min_size:
-        font = _font(font_path, size)
-        avg = font.getlength("ABCDEFGHIJKLMNOPQRSTUVWXYZ") / 26
-        width = max(8, int(max_w / avg))
-        lines = textwrap.wrap(text, width=width) or [text]
-        line_h = int(size * 1.05)
-        if all(font.getlength(l) <= max_w for l in lines) and len(lines) * line_h <= max_h:
+def _pixel_lines(text, max_w, sizes=(32, 24, 16), max_lines=2):
+    """Press Start 2P is drawn on an 8-px grid, so only multiples of 8 stay crisp. Largest size that fits on one
+    line wins; otherwise wrap at the smaller sizes. Returns (font, lines)."""
+    for size in sizes:
+        font = _font(FONT_PIXEL, size)
+        if font.getlength(text) <= max_w:
+            return font, [text]
+    for size in sizes[1:]:
+        font = _font(FONT_PIXEL, size)
+        lines = textwrap.wrap(text, width=max(8, int(max_w // size)))
+        if len(lines) <= max_lines and all(font.getlength(l) <= max_w for l in lines):
             return font, lines
-        size -= 8
-    font = _font(font_path, min_size)
-    return font, textwrap.wrap(text, width=28)[:5]
+    font = _font(FONT_PIXEL, sizes[-1])
+    return font, textwrap.wrap(text, width=max(8, int(max_w // sizes[-1])))[:max_lines]
+
+
+def _pixel_text(d, xy, text, font, fill, shadow=(60, 12, 0), drop=None):
+    """Hard-edged drop shadow (no blur, no anti-aliased stroke) — the 8-bit way."""
+    x, y = xy
+    drop = drop or max(2, font.size // 8)
+    d.text((x + drop, y + drop), text, font=font, fill=shadow, anchor="ma")
+    d.text((x, y), text, font=font, fill=fill, anchor="ma")
+
+
+def _pixel_paragraph(text, max_w, max_h, sizes=(56, 48, 40, 32, 24), leading=1.45):
+    """The message itself: largest 8-px-grid size whose wrapped lines fit the box. Returns (font, lines, line_h)."""
+    font, lines, line_h = None, [], 0
+    for size in sizes:
+        font = _font(FONT_PIXEL, size)
+        lines = textwrap.wrap(text, width=max(6, int(max_w // size))) or [text]
+        line_h = int(size * leading)
+        if all(font.getlength(l) <= max_w for l in lines) and len(lines) * line_h <= max_h:
+            break
+    return font, lines, line_h
 
 
 def make_card(message, out_png, intro_line=None):
@@ -86,26 +81,31 @@ def make_card(message, out_png, intro_line=None):
     # speed lines
     for i in range(0, W, 54):
         d.line([(i, 0), (i - 260, H)], fill=(22, 18, 26), width=2)
-    # wordmark
-    title = _gradient_text((W, 260), "TRUCK-A-FY", _font(FONT_TITLE, 190))
-    title = _skew(title, -0.12)
-    img.paste(title, ((W - title.size[0]) // 2, 38), title)
+    # CRT scanlines, faint
+    for y in range(0, H, 4):
+        d.line([(0, y), (W, y)], fill=(8, 6, 10), width=1)
+    # 8-bit wordmark (pixel art, nearest-neighbour — every block stays a hard square)
+    mark = logo.render(LOGO_SCALE)
+    img.paste(mark, ((W - mark.size[0]) // 2, 44), mark)
     d = ImageDraw.Draw(img)
-    sub = _font(FONT_SMALL, 46)
-    d.text((W // 2, 300), (intro_line or "SUNDAY! SUNDAY! SUNDAY!").upper().replace(",", "!"), font=sub,
-           fill=(255, 176, 0), anchor="mm")
-    # the message
-    body_font, lines = _fit_lines(message.upper(), FONT_BODY, W - 140, WAVE_Y - 380)
-    line_h = int(body_font.size * 1.05)
-    y = 350 + ((WAVE_Y - 30) - 350 - len(lines) * line_h) // 2
+    # intro line in the arcade font, hard drop shadow
+    sub_text = (intro_line or "SUNDAY! SUNDAY! SUNDAY!").upper().replace(",", "!")
+    sub_font, sub_lines = _pixel_lines(sub_text, W - 120)
+    y = 44 + mark.size[1] + 34
+    for l in sub_lines:
+        _pixel_text(d, (W // 2, y), l, sub_font, fill=(255, 207, 30))
+        y += int(sub_font.size * 1.5)
+    top = y + 16
+    # the message, white on a hard rust shadow like an NES text box
+    body_font, lines, line_h = _pixel_paragraph(message.upper(), W - 120, WAVE_Y - 30 - top)
+    y = top + ((WAVE_Y - 30) - top - len(lines) * line_h) // 2
     for l in lines:
-        d.text((W // 2, y), l, font=body_font, fill=(255, 255, 255), anchor="ma",
-               stroke_width=max(4, body_font.size // 16), stroke_fill=(0, 0, 0))
+        _pixel_text(d, (W // 2, y), l, body_font, fill=(255, 255, 255), shadow=(120, 30, 0))
         y += line_h
     # waveform baseline + footer
     d.line([(60, WAVE_Y + WAVE_H // 2), (W - 60, WAVE_Y + WAVE_H // 2)], fill=(70, 40, 20), width=2)
-    d.text((W // 2, H - 42), "TRUCK-A-FY   •   TYPE ANYTHING. GET THE TREATMENT.", font=_font(FONT_SMALL, 34),
-           fill=(150, 130, 120), anchor="mm")
+    _pixel_text(d, (W // 2, H - 58), "TYPE ANYTHING. GET THE TREATMENT.", _font(FONT_PIXEL, 16),
+                fill=(160, 140, 130), shadow=(0, 0, 0))
     img.save(out_png, "PNG")
     return out_png
 
@@ -113,8 +113,8 @@ def make_card(message, out_png, intro_line=None):
 def make_mp4(mp3_path, message, out_mp4, intro_line=None, tmpdir=None):
     tmpdir = tmpdir or os.path.dirname(os.path.abspath(out_mp4))
     card = make_card(message, os.path.join(tmpdir, "card.png"), intro_line)
-    fc = (f"[1:a]aformat=channel_layouts=mono,showwaves=s={W}x{WAVE_H}:mode=cline:rate=30:"
-          f"colors=#ffb000|#ff5a00:scale=sqrt,format=rgba[w];"
+    fc = (f"[1:a]aformat=channel_layouts=mono,showwaves=s={W // WAVE_PX}x{WAVE_H // WAVE_PX}:mode=cline:rate=30:"
+          f"colors=#ffb000|#ff5a00:scale=sqrt,scale={W}:{WAVE_H}:flags=neighbor,format=rgba[w];"
           f"[0:v][w]overlay=0:{WAVE_Y}:shortest=1,format=yuv420p[v]")
     cmd = ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-framerate", "30", "-i", card, "-i", mp3_path,
            "-filter_complex", fc, "-map", "[v]", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",

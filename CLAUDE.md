@@ -20,6 +20,6 @@ Read HANDOFF.md first: state, pipeline, verdicts, next tasks.
 
 ## Layout
 - `main.py` Flask app (`/`, `/truckafy`, `/health`), rate limiter, `RECIPE`
-- `script.py` text → performance script · `eleven.py` ElevenLabs client · `mix.py` post-production · `video.py` MP4
+- `script.py` text → performance script · `eleven.py` ElevenLabs client · `mix.py` post-production · `logo.py` pixel wordmark · `video.py` MP4
 - `static/index.html` web app · `assets/` SFX · `fonts/` · `takes/` raw takes for offline work
 - `deploy.sh`, `Dockerfile`, `.gcloudignore` — Cloud Run (2 CPU, 2 GiB, concurrency 2, 300 s)
