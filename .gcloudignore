@@ -1,0 +1,7 @@
+.git
+__pycache__/
+*.pyc
+assets/
+flutter_app/
+*.mp3
+*.wav
