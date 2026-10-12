@@ -20,8 +20,8 @@ service and `gcloud` are all reachable from here. There is no sandbox and no Clo
    `./.venv/Scripts/python.exe selftest.py` and `./.venv/Scripts/python.exe test_script.py`.
    (`python3` on this box is the bare 3.14 install without the deps; use the venv. Set `PYTHONIOENCODING=utf-8`
    when printing non-ASCII.)
-2. Commit and push to GitHub (`yomaha66/truckafy`). That is the backup; there is no other copy.
-3. Deploy: `./deploy.sh 2>&1 | grep -v -i key`. Needs `gcloud` on PATH (any terminal opened after 2026-09-07 has
+2. When Kevin says yes, commit and push to GitHub (`yomaha66/truckafy`, a public repo). That is the backup; there is no other copy.
+3. When Kevin says yes, deploy: `./deploy.sh 2>&1 | grep -v -i key`. This replaces the live revision. Needs `gcloud` on PATH (any terminal opened after 2026-09-07 has
    it). Cloud Build takes several minutes. Then `curl -s <url>/health` and confirm the revision moved.
 4. A real render spends ElevenLabs characters (~150–250 each, Starter tier). Ask before spending.
 5. Tell Kevin what changed in one or two sentences and hand him the file.
