@@ -27,11 +27,5 @@ service and `gcloud` are all reachable from here. There is no sandbox and no Clo
 5. Tell Kevin what changed in one or two sentences and hand him the file.
 
 ## Layout
-- `main.py` Flask app (`/`, `/truckafy`, `/health`), rate limiter, `RECIPE`
-- `script.py` text → performance script · `eleven.py` ElevenLabs client · `mix.py` post-production ·
-  `edit.py` word-accurate mixer (behind `mix.render_words` / `render_n`; not routed by `main.py` yet) ·
-  `logo.py` pixel wordmark · `video.py` MP4
-- `selftest.py` offline pipeline smoke test · `test_script.py` verbatim-rule tests
-- `static/index.html` web app · `assets/` SFX · `fonts/` · `takes/` raw takes for offline work
-- `deploy.sh`, `Dockerfile`, `.gcloudignore`, `.env` + `.env.example` — Cloud Run, us-central1
-  (2 CPU, 2 GiB, concurrency 2, 300 s; one gunicorn worker so the in-memory per-IP limiter is the real limit)
+File map: the Layout table in `README.md`. Cloud Run runs one gunicorn worker on purpose, so the in-memory
+per-IP limiter is the real limit; don't add workers.
